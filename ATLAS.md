@@ -7,6 +7,7 @@ Real-time multiplayer UNO. Express + Socket.IO backend, vanilla JS client (no fr
 - `npm start` (or `npm run dev` for watch) — serves `public/` + Socket.IO. `PORT` env overrides (default 3000).
 - `npm test` — `node --test` suite. Engine unit tests (`test/engine.test.js`) + socket.io-client integration that plays full games to a winner (`test/flow.test.js`). All 13 pass.
 - Health: `GET /api/health` → `{"ok":true}`.
+- Docker: `docker compose up --build` — `Dockerfile` (node:22-alpine, non-root, healthcheck) + `docker-compose.yml` (port 3000). `.dockerignore` excludes node_modules/test.
 
 ## Layout
 - `server.js` — Express static + Socket.IO rooms. One `rooms` Map keyed by 4-char code. Exports `{ app, server, io, rooms }` for tests.
@@ -25,7 +26,8 @@ Real-time multiplayer UNO. Express + Socket.IO backend, vanilla JS client (no fr
 - **Test state races:** attach a persistent `socket.on('state')` tracker *before* the first broadcast, or the initial state is missed and `awaitState` times out. The server broadcasts state before resolving the ack, so a cached `_st` is fresh after `emitAck` resolves.
 
 ## Design identity (keep it consistent)
-Felt-green table, wooden rail, UNO palette (red #e5311b, yellow #f2a900, green #009a4d, blue #0669b0), paper #f5f2e8, ink #10131a. Display: Archivo italic 800/900. Body: Instrument Sans. Cards = colored field + tilted black oval + white face. See `:root` tokens in `style.css`.
+Felt-green table, wooden rail, UNO palette (red #e5311b, yellow #f2a900, green #009a4d, blue #0669b0), paper #f5f2e8, ink #10131a. Display: Archivo italic 800/900. Body: Instrument Sans. Cards = colored field + tilted oval tinted 50% card color / ink (`color-mix`) + white face — the tint is what makes hand cards identifiable by color. See `:root` tokens in `style.css`.
 
 ## Open / next
-- No git repo yet. No lint/typecheck configured. No persistence (rooms are in-memory, lost on restart).
+- Git repo: https://github.com/ufz0/uno-game (public, branch `main`) — commit + push after changes.
+- No lint/typecheck configured. No persistence (rooms are in-memory, lost on restart).

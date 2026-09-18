@@ -15,6 +15,14 @@ npm start
 
 Then open http://localhost:3000 in a browser (one tab per player — or use the bots). Set a custom port with `PORT=8080 npm start`.
 
+## Docker
+
+```bash
+docker compose up --build
+```
+
+Builds a minimal Node 22 image (non-root, with a `/api/health` healthcheck) and serves the game at http://localhost:3000.
+
 ## How to play
 
 1. Pick a name, add 0–3 bots if you're feeling lonely, and **Create table**.
