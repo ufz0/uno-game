@@ -337,9 +337,24 @@ input::placeholder { color: rgba(241, 237, 226, 0.35); }
   line-height: 1;
 }
 .lobby-players .rm:hover { color: #ff9c8a; background: rgba(255, 255, 255, 0.07); }
+.lobby-players .rm.kick {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 3px 9px;
+}
+.lobby-players .rm.kick:hover { color: #ff9c8a; }
+.lobby-players .tag.ready-on { color: #8fd8ac; }
+.lobby-players .dot.rdy { background: #8fd8ac; }
 
 .lobby-hint { color: var(--dim); font-size: 13.5px; margin: 0 0 18px; line-height: 1.5; }
 .lobby-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+#btn-ready.ready-on {
+  border-color: var(--green);
+  background: rgba(0, 154, 77, 0.18);
+  color: #b8ecd0;
+}
 
 /* ---------- table ---------- */
 
@@ -890,6 +905,31 @@ input::placeholder { color: rgba(241, 237, 226, 0.35); }
 .over-card p { margin: 0 0 22px; color: var(--dim); }
 .over-actions { display: flex; gap: 10px; justify-content: center; }
 
+.rematch-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+.rematch-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.rematch-list li.me { border-color: rgba(255, 213, 74, 0.35); }
+.rematch-list .rstat { font-size: 12.5px; font-weight: 700; color: var(--dim); white-space: nowrap; }
+.rematch-list li.in .rstat { color: #8fd8ac; }
+.rematch-timer { min-height: 18px; margin: 12px 0 0; font-size: 13px; color: #ff9c8a; }
+
 /* ---------- flying card ---------- */
 
 .flying {
@@ -899,6 +939,21 @@ input::placeholder { color: rgba(241, 237, 226, 0.35); }
   margin: 0;
   transition: transform 0.32s cubic-bezier(0.3, 0.8, 0.4, 1), opacity 0.32s;
 }
+
+#shuffle-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  pointer-events: none;
+}
+.shuf {
+  position: fixed;
+  z-index: 55;
+  pointer-events: none;
+  margin: 0;
+}
+#discard-card { transition: opacity 0.4s; }
+.shuffling #discard-card { opacity: 0; }
 
 /* ---------- responsive ---------- */
 

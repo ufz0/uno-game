@@ -65,12 +65,13 @@
           <button class="btn ghost small" id="btn-copy">Copy</button>
         </div>
         <ul class="lobby-players" id="lobby-players"></ul>
-        <p class="lobby-hint">2–4 players. Match the color or the number. Bots can sit in empty seats until friends arrive.</p>
-        <div class="lobby-actions">
-          <button class="btn ghost" id="btn-add-bot">Add a bot</button>
-          <button class="btn primary" id="btn-start">Deal the cards</button>
-          <button class="btn ghost" id="btn-leave">Leave table</button>
-        </div>
+      <p class="lobby-hint">2–4 players. Everyone hits ready, then the party leader deals. Bots can sit in empty seats until friends arrive.</p>
+      <div class="lobby-actions">
+        <button class="btn ghost" id="btn-ready">I'm ready</button>
+        <button class="btn ghost small" id="btn-add-bot">Add a bot</button>
+        <button class="btn primary" id="btn-start">Deal the cards</button>
+        <button class="btn ghost" id="btn-leave">Leave table</button>
+      </div>
         <p class="menu-error" id="lobby-error" role="alert"></p>
       </div>
     </section>
@@ -150,12 +151,18 @@
           <div class="over-word"><span class="u">U</span><span class="n">N</span><span class="o">O</span></div>
           <h2 id="over-title">Table cleared</h2>
           <p id="over-sub"></p>
+          <div id="rematch" hidden>
+            <ul class="rematch-list" id="rematch-list"></ul>
+            <p class="rematch-timer" id="rematch-timer" hidden></p>
+          </div>
           <div class="over-actions">
-            <button class="btn primary" id="btn-again">Deal again</button>
+            <button class="btn primary" id="btn-again">Play again</button>
             <button class="btn ghost" id="btn-leave2">Leave table</button>
           </div>
         </div>
       </div>
+
+      <div id="shuffle-layer" hidden></div>
     </section>
 
   </div>
