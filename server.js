@@ -18,6 +18,8 @@ const io = new Server(server, { cors: { origin: false } });
 
 const MAX_PLAYERS = 4;
 const TURN_MS = 30000;
+const REMATCH_MS = Number(process.env.REMATCH_MS) || 30000;
+const RESHUFFLE_MS = 1800;
 const BOT_DELAY_MS = [1000, 2200];
 const BOT_NAMES = ['Ruby', 'Milo', 'Vera', 'Otis', 'Nova', 'Juno'];
 
@@ -67,6 +69,8 @@ function stateFor(room, socket) {
   const g = room.game;
   const myIndex = playerIndexOf(room, socket.id);
   const myTurn = g.status === 'playing' && myIndex >= 0 && g.turn === myIndex;
+  const humans = g.players.filter((p) => !p.isBot);
+  const rm = room.rematch;
   return {
     code: room.code,
     status: g.status,
@@ -83,10 +87,20 @@ function stateFor(room, socket) {
     playable: myTurn ? g.playableCards(g.players[myIndex].hand).map((c) => c.id) : [],
     turnDeadline: g.status === 'playing' ? room.turnDeadline : null,
     turnTotal: TURN_MS,
+    allReady: humans.length > 0 && humans.every((p) => p.ready),
+    rematch: rm
+      ? {
+          locked: rm.locked,
+          youVoted: rm.votes.has(socket.id),
+          votes: g.players.map((p, i) => (rm.votes.has(p.id) ? i : -1)).filter((i) => i >= 0),
+          deadline: rm.deadlines.get(socket.id) || null,
+        }
+      : null,
     players: g.players.map((p, i) => ({
       index: i,
       name: p.name,
       isBot: p.isBot,
+      ready: p.isBot ? true : !!p.ready,
       handCount: p.hand.length,
       isCurrent: g.status === 'playing' && i === g.turn,
       uno: p.unoCalled,
@@ -113,6 +127,20 @@ function clearTimers(room) {
   room.botTimer = null;
 }
 
+function clearRematch(room) {
+  const rm = room.rematch;
+  if (!rm) return;
+  for (const t of rm.timers.values()) clearTimeout(t);
+  if (rm.startTimer) clearTimeout(rm.startTimer);
+  room.rematch = null;
+}
+
+function destroyRoom(room) {
+  clearRematch(room);
+  clearTimers(room);
+  rooms.delete(room.code);
+}
+
 function autoPass(room) {
   const g = room.game;
   if (g.status !== 'playing') return;
@@ -136,11 +164,93 @@ function runBot(room) {
   afterAction(room);
 }
 
+function beginRematch(room) {
+  const rm = { votes: new Set(), deadlines: new Map(), timers: new Map(), startTimer: null, locked: false };
+  for (const sid of room.humans) {
+    rm.deadlines.set(sid, Date.now() + REMATCH_MS);
+    rm.timers.set(sid, setTimeout(() => kickPlayer(room, sid, 'timeout'), REMATCH_MS));
+  }
+  room.rematch = rm;
+}
+
+function maybeStartNext(room) {
+  const rm = room.rematch;
+  if (!rm || rm.locked) return;
+  const humans = [...room.humans];
+  if (humans.length === 0) {
+    destroyRoom(room);
+    return;
+  }
+  if (!humans.every((sid) => rm.votes.has(sid))) return;
+  rm.locked = true;
+  for (const t of rm.timers.values()) clearTimeout(t);
+  rm.timers.clear();
+  for (const sid of [...rm.deadlines.keys()]) rm.deadlines.delete(sid);
+  broadcast(room);
+  const count = room.game.discard.length;
+  for (const sid of room.humans) io.to(sid).emit('reshuffle', { count });
+  rm.startTimer = setTimeout(() => startNextRound(room), RESHUFFLE_MS);
+}
+
+function startNextRound(room) {
+  if (!rooms.has(room.code)) return;
+  room.rematch = null;
+  const g = room.game;
+  for (let i = g.players.length - 1; i >= 0; i--) {
+    const p = g.players[i];
+    if (!p.isBot && !room.humans.has(p.id)) g.removePlayer(i);
+  }
+  g.reset();
+  if (g.canStart()) {
+    g.start();
+    toast(room, 'New round — good luck');
+  } else {
+    toast(room, 'Not enough players left for a new round — back to the lobby');
+  }
+  afterAction(room);
+}
+
+function kickPlayer(room, sid, reason) {
+  room.humans.delete(sid);
+  const sock = io.sockets.sockets.get(sid);
+  if (sock) {
+    sock.leave(room.code);
+    sock.emit('kicked', { reason });
+  }
+  const g = room.game;
+  const idx = g.playerIndexById(sid);
+  if (idx >= 0) {
+    if (g.status === 'playing') {
+      g.players[idx].isBot = true;
+      g.players[idx].name = `${g.players[idx].name} (away)`;
+    } else {
+      g.removePlayer(idx);
+    }
+  }
+  const rm = room.rematch;
+  if (rm) {
+    const t = rm.timers.get(sid);
+    if (t) clearTimeout(t);
+    rm.timers.delete(sid);
+    rm.deadlines.delete(sid);
+    rm.votes.delete(sid);
+  }
+  if (room.host === sid) {
+    const next = room.humans.values().next();
+    room.host = next.done ? null : next.value;
+  }
+  if (room.humans.size === 0) return destroyRoom(room);
+  if (rm && !rm.locked) maybeStartNext(room);
+  if (g.status === 'playing') afterAction(room);
+  else broadcast(room);
+}
+
 function afterAction(room) {
   const g = room.game;
   clearTimers(room);
   if (g.status !== 'playing') {
-    if (room.humans.size === 0) rooms.delete(room.code);
+    if (g.status === 'over' && room.humans.size > 0) beginRematch(room);
+    if (room.humans.size === 0) return destroyRoom(room);
     broadcast(room);
     return;
   }
@@ -185,13 +295,15 @@ io.on('connection', (socket) => {
 
     const count = Math.max(0, Math.min(3, parseInt(bots, 10) || 0));
     for (let i = 0; i < count; i++) addBot(room);
-    cb?.({ ok: true, code: room.code });
-
     if (count > 0) {
+      // Bots fill the seats, so there is nobody to wait for: skip the lobby and deal.
+      room.game.players[0].ready = true;
+      cb?.({ ok: true, code: room.code });
       startGame(room);
-    } else {
-      broadcast(room);
+      return;
     }
+    cb?.({ ok: true, code: room.code });
+    broadcast(room);
   });
 
   socket.on('join', ({ code, name } = {}, cb) => {
@@ -207,10 +319,39 @@ io.on('connection', (socket) => {
     broadcast(room);
   });
 
+  socket.on('ready', ({ on } = {}, cb) => {
+    const room = roomOf(socket);
+    if (!room) return cb?.({ ok: false, error: 'Not at a table' });
+    if (room.game.status !== 'lobby') return cb?.({ ok: false, error: 'Only in the lobby' });
+    const idx = playerIndexOf(room, socket.id);
+    const p = room.game.players[idx];
+    if (!p || p.isBot) return cb?.({ ok: false });
+    p.ready = !!on;
+    cb?.({ ok: true });
+    broadcast(room);
+  });
+
+  socket.on('kick', ({ index } = {}, cb) => {
+    const room = roomOf(socket);
+    if (!room) return cb?.({ ok: false, error: 'Not at a table' });
+    if (room.host !== socket.id) return cb?.({ ok: false, error: 'Only the party leader can kick' });
+    if (room.game.status !== 'lobby') return cb?.({ ok: false, error: 'Only in the lobby' });
+    const p = room.game.players[index];
+    if (!p || p.isBot || p.id === socket.id) return cb?.({ ok: false, error: 'Not a player' });
+    toast(room, `${p.name} was kicked`);
+    cb?.({ ok: true });
+    kickPlayer(room, p.id, 'host');
+  });
+
   socket.on('start', (_payload, cb) => {
     const room = roomOf(socket);
     if (!room) return cb?.({ ok: false, error: 'Not at a table' });
     if (room.host !== socket.id) return cb?.({ ok: false, error: 'Only the host can start' });
+    if (room.game.status !== 'lobby') return cb?.({ ok: false, error: 'Game already running' });
+    const waiting = room.game.players.filter((p) => !p.isBot && !p.ready);
+    if (waiting.length > 0) {
+      return cb?.({ ok: false, error: `Waiting for ${waiting.map((p) => p.name).join(', ')} to be ready` });
+    }
     startGame(room, cb);
   });
 
@@ -293,12 +434,25 @@ io.on('connection', (socket) => {
     for (const sid of room.humans) io.to(sid).emit('chat', msg);
   });
 
-  socket.on('restart', (_payload, cb) => {
+  socket.on('rematch', ({ again } = {}, cb) => {
     const room = roomOf(socket);
-    if (!room) return cb?.({ ok: false });
-    if (room.host !== socket.id) return cb?.({ ok: false, error: 'Only the host can restart' });
-    room.game.reset();
-    startGame(room, cb);
+    if (!room) return cb?.({ ok: false, error: 'Not at a table' });
+    const rm = room.rematch;
+    if (!rm || rm.locked) return cb?.({ ok: false, error: 'No rematch in progress' });
+    if (room.game.status !== 'over') return cb?.({ ok: false, error: 'Game is not over' });
+    if (again) {
+      rm.votes.add(socket.id);
+      const t = rm.timers.get(socket.id);
+      if (t) clearTimeout(t);
+      rm.timers.delete(socket.id);
+      rm.deadlines.delete(socket.id);
+      cb?.({ ok: true });
+      broadcast(room);
+      maybeStartNext(room);
+    } else {
+      cb?.({ ok: true });
+      leave(false);
+    }
   });
 
   function leave(disconnected = false) {
@@ -306,28 +460,36 @@ io.on('connection', (socket) => {
     if (!room) return;
     room.humans.delete(socket.id);
     socket.leave(room.code);
+    const g = room.game;
     const idx = playerIndexOf(room, socket.id);
     if (idx >= 0) {
-      const p = room.game.players[idx];
-      if (disconnected) {
-        p.disconnected = true;
-      } else if (room.game.status === 'playing') {
-        p.isBot = true;
-        p.name = `${p.name} (away)`;
+      const p = g.players[idx];
+      if (g.status === 'playing') {
+        if (disconnected) {
+          p.disconnected = true;
+        } else {
+          p.isBot = true;
+          p.name = `${p.name} (away)`;
+        }
       } else {
-        room.game.removePlayer(idx);
+        g.removePlayer(idx);
       }
+    }
+    const rm = room.rematch;
+    if (rm) {
+      const t = rm.timers.get(socket.id);
+      if (t) clearTimeout(t);
+      rm.timers.delete(socket.id);
+      rm.deadlines.delete(socket.id);
+      rm.votes.delete(socket.id);
     }
     if (room.host === socket.id) {
       const next = room.humans.values().next();
       room.host = next.done ? null : next.value;
     }
-    if (room.humans.size === 0 && room.game.status !== 'playing') {
-      clearTimers(room);
-      rooms.delete(room.code);
-      return;
-    }
-    if (room.game.status === 'playing') afterAction(room);
+    if (room.humans.size === 0) return destroyRoom(room);
+    if (rm && !rm.locked) maybeStartNext(room);
+    if (g.status === 'playing') afterAction(room);
     else broadcast(room);
   }
 

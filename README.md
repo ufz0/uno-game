@@ -27,9 +27,10 @@ Builds a minimal Node 22 image (non-root, with a `/api/health` healthcheck) and 
 
 1. Pick a name, add 0–3 bots if you're feeling lonely, and **Create table**.
 2. Share the 4-letter code. Friends **Join** with that code and a name.
-3. The host hits **Deal**.
+3. Everyone hits **Ready** — the party leader (creator) can also kick players out of the lobby — then the leader hits **Deal**.
 4. Match the top card by color or value, play action cards, pick colors for wilds, and — when you're down to one card — press **UNO** before you play it, or you'll draw two as a penalty.
 5. First player to empty their hand (after a proper UNO shout) wins.
+6. After every round, each player chooses **Play again** or **Leave** — you get 30 seconds, and if you don't pick, the table moves on without you. When everyone is in, the played cards fly up, get mixed, and the next round deals itself.
 
 Every seat has a 30-second turn timer; run it out and you draw a card and pass.
 

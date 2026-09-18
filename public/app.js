@@ -13,6 +13,8 @@ const S = {
   knownHand: new Set(),
   toastTimer: null,
   stampTimer: null,
+  shuffleTimer: null,
+  shuffling: false,
 };
 
 const COLOR_HEX = { red: '#e5311b', yellow: '#f2a900', green: '#009a4d', blue: '#0669b0' };
@@ -197,14 +199,39 @@ function renderOver() {
     over.hidden = true;
     return;
   }
+  const rm = st.rematch;
+  if (rm && rm.locked) {
+    over.hidden = true;
+    return;
+  }
+  over.hidden = false;
   const winner = st.players.find((p) => p.index === st.winner);
   const iWon = st.winner === st.yourIndex;
   $('#over-title').textContent = iWon ? 'You win the table' : `${winner ? winner.name : 'Someone'} wins`;
   $('#over-sub').textContent = iWon
     ? 'Every card played, every color called. Clean sweep.'
     : 'The deck took it this round. Run it back?';
-  $('#btn-again').style.display = st.isHost ? '' : 'none';
-  over.hidden = false;
+  $('#btn-again').style.display = '';
+  $('#btn-leave2').style.display = '';
+  const box = $('#rematch');
+  if (!rm) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  const humans = st.players.filter((p) => !p.isBot);
+  $('#rematch-list').innerHTML = humans
+    .map((p) => {
+      const voted = rm.votes.includes(p.index);
+      const mine = p.index === st.yourIndex;
+      return `<li class="${voted ? 'in' : ''} ${mine ? 'me' : ''}">
+        <span class="pname">${esc(p.name)}${mine ? ' (you)' : ''}</span>
+        <span class="rstat">${voted ? 'in' : 'deciding…'}</span>
+      </li>`;
+    })
+    .join('');
+  $('#btn-again').disabled = rm.youVoted;
+  $('#btn-again').textContent = rm.youVoted ? 'In — waiting for the table' : 'Play again';
 }
 
 function showToast(text) {
@@ -248,6 +275,62 @@ function flyToDiscard(cardEl, isBack) {
   setTimeout(() => clone.remove(), 360);
 }
 
+/* ---------- reshuffle animation ---------- */
+
+function cleanupShuffle() {
+  S.shuffling = false;
+  clearTimeout(S.shuffleTimer);
+  const layer = $('#shuffle-layer');
+  layer.innerHTML = '';
+  layer.hidden = true;
+  $('#screen-table').classList.remove('shuffling');
+}
+
+function playReshuffle(count) {
+  cleanupShuffle();
+  const layer = $('#shuffle-layer');
+  layer.hidden = false;
+  S.shuffling = true;
+  $('#screen-table').classList.add('shuffling');
+  const disc = $('#discard-pile').getBoundingClientRect();
+  const deck = $('#deck-pile').getBoundingClientRect();
+  const cx = (r) => r.left + r.width / 2;
+  const cy = (r) => r.top + r.height / 2;
+  const n = Math.max(3, Math.min(count, 14));
+  const spread = Math.min(420, window.innerWidth * 0.5);
+  for (let i = 0; i < n; i++) {
+    const el = backCard();
+    el.classList.add('shuf');
+    el.style.width = disc.width + 'px';
+    el.style.height = disc.height + 'px';
+    const sx = cx(disc) + (Math.random() * 28 - 14);
+    const sy = cy(disc) + (Math.random() * 28 - 14);
+    const mx = window.innerWidth / 2 + (Math.random() * spread - spread / 2);
+    const my = Math.max(90, sy - 140 - Math.random() * 170);
+    el.style.left = sx + 'px';
+    el.style.top = sy + 'px';
+    layer.appendChild(el);
+    const dur = 1150 + i * 55 + Math.random() * 120;
+    el.animate(
+      [
+        { transform: 'translate(-50%, -50%) rotate(0deg) scale(1)', opacity: 1 },
+        {
+          transform: `translate(calc(-50% + ${(mx - sx).toFixed(1)}px), calc(-50% + ${(my - sy).toFixed(1)}px)) rotate(${(Math.random() * 540 - 270).toFixed(0)}deg) scale(1.06)`,
+          opacity: 1,
+          offset: 0.5,
+        },
+        {
+          transform: `translate(calc(-50% + ${(cx(deck) - sx).toFixed(1)}px), calc(-50% + ${(cy(deck) - sy).toFixed(1)}px)) rotate(${(Math.random() * 80 - 40).toFixed(0)}deg) scale(0.45)`,
+          opacity: 0,
+        },
+      ],
+      { duration: dur, delay: i * 40, easing: 'cubic-bezier(0.32, 0.72, 0.35, 1)', fill: 'forwards' }
+    );
+    setTimeout(() => el.remove(), dur + i * 40 + 80);
+  }
+  S.shuffleTimer = setTimeout(cleanupShuffle, 1900);
+}
+
 /* ---------- timer ring ---------- */
 
 function updateTimer() {
@@ -255,15 +338,23 @@ function updateTimer() {
   const ring = $('#timer-ring');
   if (!st || st.status !== 'playing' || !st.canAct || !st.turnDeadline) {
     ring.hidden = true;
-    return;
+  } else {
+    ring.hidden = false;
+    const total = st.turnTotal;
+    const left = Math.max(0, st.turnDeadline - Date.now());
+    ring.style.setProperty('--p', Math.min(100, (left / total) * 100) + '%');
+    const secs = Math.ceil(left / 1000);
+    $('#deck-pile').title = secs <= 10 ? `Draw or act — ${secs}s left` : 'Draw a card';
   }
-  ring.hidden = false;
-  const total = st.turnTotal;
-  const left = Math.max(0, st.turnDeadline - Date.now());
-  const pct = Math.min(100, (left / total) * 100);
-  ring.style.setProperty('--p', pct + '%');
-  const secs = Math.ceil(left / 1000);
-  $('#deck-pile').title = secs <= 10 ? `Draw or act — ${secs}s left` : 'Draw a card';
+  const rm = st && st.status === 'over' ? st.rematch : null;
+  const t = $('#rematch-timer');
+  if (rm && !rm.youVoted && !rm.locked && rm.deadline) {
+    const secs = Math.max(0, Math.ceil((rm.deadline - Date.now()) / 1000));
+    t.textContent = `${secs}s left to decide — then the table moves on without you.`;
+    t.hidden = false;
+  } else {
+    t.hidden = true;
+  }
 }
 
 setInterval(updateTimer, 250);
@@ -313,6 +404,7 @@ function onState(st) {
   else if (st.status === 'playing' || st.status === 'over') show('table');
   if (S.screen === 'lobby') renderLobby();
   if (S.screen === 'table') {
+    if (st.status === 'playing') cleanupShuffle();
     renderOpponents();
     renderPiles();
     renderHand();
@@ -344,13 +436,20 @@ function renderLobby() {
   const list = $('#lobby-players');
   list.innerHTML = st.players.map((p) => `
     <li>
-      <span class="dot ${p.isBot ? 'bot' : ''}"></span>
+      <span class="dot ${p.isBot ? 'bot' : ''} ${p.ready ? 'rdy' : ''}"></span>
       <span class="pname">${esc(p.name)}${p.isBot ? '' : (p.index === st.yourIndex ? ' (you)' : '')}</span>
-      ${p.isBot ? `<span class="tag">bot</span><button class="rm" data-index="${p.index}" title="Remove bot" aria-label="Remove ${esc(p.name)}">✕</button>` : ''}
+      <span class="tag ${p.ready ? 'ready-on' : ''}">${p.isBot ? 'bot' : (p.ready ? 'ready' : 'not ready')}</span>
+      ${!p.isBot && p.index !== st.yourIndex && st.isHost ? `<button class="rm kick" data-kick="${p.index}" title="Kick from the table" aria-label="Kick ${esc(p.name)}">kick</button>` : ''}
+      ${p.isBot ? `<button class="rm" data-index="${p.index}" title="Remove bot" aria-label="Remove ${esc(p.name)}">✕</button>` : ''}
     </li>`).join('');
+  const me = st.players.find((p) => p.index === st.yourIndex);
   const canHost = st.isHost;
-  $('#btn-start').disabled = !canHost || st.players.length < 2;
+  $('#btn-start').disabled = !canHost || st.players.length < 2 || !st.allReady;
+  $('#btn-start').title = st.allReady ? '' : 'Waiting for everyone to be ready';
   $('#btn-add-bot').disabled = !canHost || st.players.length >= 4;
+  const rb = $('#btn-ready');
+  rb.textContent = me && me.ready ? 'Ready — tap to un-ready' : "I'm ready";
+  rb.classList.toggle('ready-on', !!(me && me.ready));
   $('#lobby-error').textContent = '';
 }
 
@@ -406,10 +505,15 @@ $('#join-code').addEventListener('keydown', (e) => {
 $('#btn-start').addEventListener('click', () => emit('start'));
 $('#btn-add-bot').addEventListener('click', () => emit('add-bot'));
 $('#btn-leave').addEventListener('click', leaveToMenu);
+$('#btn-ready').addEventListener('click', () => {
+  const me = S.st && S.st.players.find((p) => p.index === S.st.yourIndex);
+  emit('ready', { on: !(me && me.ready) });
+});
 $('#lobby-players').addEventListener('click', (e) => {
   const rm = e.target.closest('.rm');
   if (!rm) return;
-  emit('remove-bot', { index: parseInt(rm.dataset.index, 10) });
+  if (rm.dataset.kick != null) emit('kick', { index: parseInt(rm.dataset.kick, 10) });
+  else emit('remove-bot', { index: parseInt(rm.dataset.index, 10) });
 });
 $('#btn-copy').addEventListener('click', () => {
   const code = $('#lobby-code').textContent;
@@ -488,7 +592,7 @@ $('.chat-quick').addEventListener('click', (e) => {
   if (b) sendChat(b.dataset.q);
 });
 
-$('#btn-again').addEventListener('click', () => emit('restart'));
+$('#btn-again').addEventListener('click', () => emit('rematch', { again: true }));
 $('#btn-leave2').addEventListener('click', leaveToMenu);
 
 /* ---------- socket events ---------- */
@@ -498,6 +602,22 @@ socket.on('state', onState);
 socket.on('toast', (t) => showToast(t.text));
 
 socket.on('uno-shout', (u) => showUnoStamp(u.name));
+
+socket.on('reshuffle', (r) => playReshuffle(r.count));
+
+socket.on('kicked', (k) => {
+  S.st = null;
+  $('#over-title').textContent = 'You were kicked';
+  $('#over-sub').textContent =
+    k && k.reason === 'timeout'
+      ? 'You took too long to decide, so the table moved on without you.'
+      : 'The party leader showed you the door.';
+  $('#rematch').hidden = true;
+  $('#btn-again').style.display = 'none';
+  $('#btn-leave2').style.display = '';
+  $('#over').hidden = false;
+  show('table');
+});
 
 socket.on('chat', (m) => {
   const st = S.st;

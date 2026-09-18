@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import io from 'socket.io-client';
 
 process.env.PORT = '0';
+process.env.REMATCH_MS = '4000';
 
 const mod = await import('../server.js');
 const { server, rooms } = mod;
@@ -13,6 +14,10 @@ after(() => {
   for (const room of rooms.values()) {
     clearTimeout(room.turnTimer);
     clearTimeout(room.botTimer);
+    if (room.rematch) {
+      for (const t of room.rematch.timers.values()) clearTimeout(t);
+      if (room.rematch.startTimer) clearTimeout(room.rematch.startTimer);
+    }
   }
   rooms.clear();
   return new Promise((r) => server.close(r));
@@ -98,6 +103,60 @@ async function playToTheEnd(a, b, maxMoves = 500) {
   throw new Error('game did not finish within the move budget');
 }
 
+test('the game waits until every human is ready', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  assert.equal(created.ok, true);
+  await emitAck(b, 'join', { name: 'Bob', code: created.code });
+
+  const early = await emitAck(a, 'start');
+  assert.equal(early.ok, false);
+  assert.match(early.error, /ready/);
+
+  await emitAck(a, 'ready', { on: true });
+  const partial = await emitAck(a, 'start');
+  assert.equal(partial.ok, false);
+  assert.match(partial.error, /Bob/);
+
+  await emitAck(b, 'ready', { on: true });
+  const started = await emitAck(a, 'start');
+  assert.equal(started.ok, true);
+
+  const st = await awaitState(a, (x) => x.status === 'playing', 5000);
+  assert.equal(st.players.length, 2);
+  assert.ok(st.players.every((p) => p.ready));
+
+  a.close();
+  b.close();
+});
+
+test('the party leader can kick a player from the lobby', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  await emitAck(b, 'join', { name: 'Bob', code: created.code });
+
+  const kicked = new Promise((r) => b.on('kicked', r));
+  const res = await emitAck(a, 'kick', { index: 1 });
+  assert.equal(res.ok, true);
+  assert.equal((await kicked).reason, 'host');
+
+  const st = await latest(a);
+  assert.equal(st.players.length, 1);
+  assert.equal(st.players[0].name, 'Alice');
+
+  const c = await connect();
+  await emitAck(c, 'join', { name: 'Carol', code: created.code });
+  const denied = await emitAck(c, 'kick', { index: 0 });
+  assert.equal(denied.ok, false);
+  assert.match(denied.error, /party leader/);
+
+  a.close();
+  b.close();
+  c.close();
+});
+
 test('two humans play a complete game to a winner', { timeout: 90000 }, async () => {
   const a = await connect();
   const b = await connect();
@@ -109,6 +168,8 @@ test('two humans play a complete game to a winner', { timeout: 90000 }, async ()
   const joined = await emitAck(b, 'join', { name: 'Bob', code: created.code });
   assert.equal(joined.ok, true);
 
+  await emitAck(a, 'ready', { on: true });
+  await emitAck(b, 'ready', { on: true });
   const started = await emitAck(a, 'start');
   assert.equal(started.ok, true);
 
@@ -119,20 +180,76 @@ test('two humans play a complete game to a winner', { timeout: 90000 }, async ()
   b.close();
 });
 
-test('a human plus three bots plays to a winner', { timeout: 120000 }, async () => {
+test('rematch: when everyone votes in, the next round deals immediately', { timeout: 90000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  await emitAck(b, 'join', { name: 'Bob', code: created.code });
+  await emitAck(a, 'ready', { on: true });
+  await emitAck(b, 'ready', { on: true });
+  await emitAck(a, 'start');
+
+  const st = await playToTheEnd(a, b);
+  assert.equal(st.status, 'over');
+  assert.ok(st.rematch && !st.rematch.locked);
+
+  const reshufA = new Promise((r) => a.on('reshuffle', r));
+  const reshufB = new Promise((r) => b.on('reshuffle', r));
+  const t0 = Date.now();
+  await emitAck(a, 'rematch', { again: true });
+  await emitAck(b, 'rematch', { again: true });
+  assert.ok((await reshufA).count >= 1);
+  await reshufB;
+
+  const st2 = await awaitState(a, (x) => x.status === 'playing', 3500);
+  assert.ok(Date.now() - t0 < 3500, 'the remaining rematch timer should be skipped');
+  assert.equal(st2.players.length, 2);
+  assert.equal(st2.yourHand.length, 7);
+
+  // play the second round out so the table can be torn down cleanly
+  await playToTheEnd(a, b);
+
+  a.close();
+  b.close();
+});
+
+test('rematch: players who do not vote in time are kicked', { timeout: 60000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  await emitAck(b, 'join', { name: 'Bob', code: created.code });
+  await emitAck(a, 'ready', { on: true });
+  await emitAck(b, 'ready', { on: true });
+  await emitAck(a, 'start');
+
+  const st = await playToTheEnd(a, b);
+  assert.equal(st.status, 'over');
+
+  const guard = (ms) => new Promise((r) => setTimeout(() => r(null), ms));
+  const ka = await Promise.race([new Promise((r) => a.on('kicked', r)), guard(9000)]);
+  const kb = await Promise.race([new Promise((r) => b.on('kicked', r)), guard(9000)]);
+  assert.equal(ka.reason, 'timeout');
+  assert.equal(kb.reason, 'timeout');
+
+  a.close();
+  b.close();
+});
+
+test('tables with bots deal straight away; a human plus three bots plays to a winner', { timeout: 120000 }, async () => {
   const a = await connect();
   const b = await connect();
 
   const created = await emitAck(a, 'create', { name: 'Host', bots: 3 });
   assert.equal(created.ok, true);
 
-  // game auto-started with bots; let the host sit in as a second seat via a joiner
+  // no lobby for bot tables: the first deal lands right after create
+  const stPlaying = await awaitState(a, (x) => x.status === 'playing', 5000);
+  assert.equal(stPlaying.players.length, 4);
+
+  // the game is already running, so late joiners are refused
   const joined = await emitAck(b, 'join', { name: 'Late', code: created.code });
   assert.equal(joined.ok, false);
-
-  const stA = await awaitState(a, (st) => st.status === 'over' || st.canAct, 120000);
-  assert.equal(stA.status, 'playing');
-  assert.equal(stA.players.length, 4);
+  assert.match(joined.error, /already started/);
 
   for (let i = 0; i < 400; i++) {
     const st = await awaitState(a, (x) => x.status === 'over' || x.canAct, 30000);
@@ -145,6 +262,39 @@ test('a human plus three bots plays to a winner', { timeout: 120000 }, async () 
 
   a.close();
   b.close();
+});
+
+test('a solo table with one bot plays to a winner and rematches alone', { timeout: 180000 }, async () => {
+  const a = await connect();
+
+  const created = await emitAck(a, 'create', { name: 'Solo', bots: 1 });
+  assert.equal(created.ok, true);
+
+  // straight to the table, no ready-up
+  const st = await awaitState(a, (x) => x.status === 'playing', 5000);
+  assert.equal(st.players.length, 2);
+  assert.ok(st.players.some((p) => p.isBot));
+
+  for (let i = 0; i < 400; i++) {
+    const cur = await awaitState(a, (x) => x.status === 'over' || x.canAct, 30000);
+    if (cur.status === 'over') break;
+    await act(a);
+  }
+
+  const over = await awaitState(a, (x) => x.status === 'over', 120000);
+  assert.ok(over.winner !== null);
+  assert.ok(over.rematch && !over.rematch.locked);
+
+  // one human voting is enough to run it back
+  const reshuf = new Promise((r) => a.on('reshuffle', r));
+  await emitAck(a, 'rematch', { again: true });
+  assert.ok((await reshuf).count >= 1);
+
+  const next = await awaitState(a, (x) => x.status === 'playing', 5000);
+  assert.equal(next.players.length, 2);
+  assert.equal(next.yourHand.length, 7);
+
+  a.close();
 });
 
 test('chat is relayed to the table', { timeout: 30000 }, async () => {
