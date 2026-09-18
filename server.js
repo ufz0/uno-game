@@ -10,6 +10,28 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 
 const app = express();
+app.disable('x-powered-by');
+
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' https://fonts.googleapis.com",
+  "font-src https://fonts.gstatic.com",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+app.use((_req, res, next) => {
+  res.setHeader('Content-Security-Policy', CSP);
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
@@ -17,6 +39,7 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: false } });
 
 const MAX_PLAYERS = 4;
+const MAX_ROOMS = Number(process.env.MAX_ROOMS) || 100;
 const TURN_MS = 30000;
 const REMATCH_MS = Number(process.env.REMATCH_MS) || 30000;
 const RESHUFFLE_MS = 1800;
@@ -25,7 +48,9 @@ const BOT_NAMES = ['Ruby', 'Milo', 'Vera', 'Otis', 'Nova', 'Juno'];
 
 const rooms = new Map();
 
-function genCode(len = 4) {
+// Six chars from a 32-char alphabet (~1.07B codes) — long enough that
+// probing for live tables by guessing is not practical.
+function genCode(len = 6) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code;
   do {
@@ -113,7 +138,13 @@ function stateFor(room, socket) {
 }
 
 function broadcast(room) {
-  for (const sid of room.humans) io.to(sid).emit('state', stateFor(room, io.sockets.sockets.get(sid)));
+  for (const sid of room.humans) {
+    const sock = io.sockets.sockets.get(sid);
+    // A stale id must not throw here: an uncaught exception would take
+    // down the whole process and every table with it.
+    if (!sock) continue;
+    io.to(sid).emit('state', stateFor(room, sock));
+  }
 }
 
 function toast(room, text) {
@@ -284,7 +315,21 @@ function startGame(room, cb) {
 }
 
 io.on('connection', (socket) => {
+  // An 'error' event with no listener would crash the process.
+  socket.on('error', (err) => {
+    console.error(`socket error (${socket.id}): ${err?.message || err}`);
+    socket.disconnect(true);
+  });
+
   socket.on('create', ({ name, bots = 0 } = {}, cb) => {
+    // One room per socket: leaving the old room first, otherwise the
+    // previous room would leak on disconnect (only the first room found
+    // is ever cleaned up).
+    const seated = roomOf(socket);
+    if (rooms.size >= MAX_ROOMS && !seated) {
+      return cb?.({ ok: false, error: 'The house is full — try again in a minute' });
+    }
+    if (seated) leave(false);
     const room = newRoom();
     const n = cleanName(name);
     room.game.addPlayer(n, false, socket.id);
@@ -307,6 +352,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('join', ({ code, name } = {}, cb) => {
+    if (roomOf(socket)) {
+      return cb?.({ ok: false, error: 'You are already at a table — leave it first' });
+    }
     const room = rooms.get(String(code || '').trim().toUpperCase());
     if (!room) return cb?.({ ok: false, error: 'No table found with that code' });
     if (room.game.status !== 'lobby') return cb?.({ ok: false, error: 'That game already started' });

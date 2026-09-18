@@ -157,13 +157,53 @@ test('the party leader can kick a player from the lobby', { timeout: 30000 }, as
   c.close();
 });
 
+test('creating a new table while seated leaves the old one', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const first = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  assert.equal(first.ok, true);
+  await new Promise((r) => setTimeout(r, 20));
+  const before = rooms.size;
+
+  const second = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  assert.equal(second.ok, true);
+  assert.notEqual(second.code, first.code);
+
+  // the old room had one human, so the move tore it down — no leak
+  assert.equal(rooms.size, before);
+  const st = await latest(a);
+  assert.equal(st.code, second.code);
+
+  a.close();
+});
+
+test('joining while already seated at a table is refused', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  await emitAck(b, 'join', { name: 'Bob', code: created.code });
+
+  const second = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  assert.equal(second.ok, true);
+
+  const again = await emitAck(b, 'join', { name: 'Bob', code: second.code });
+  assert.equal(again.ok, false);
+  assert.match(again.error, /already at a table/);
+
+  // b is still seated at the first table
+  const stB = await latest(b);
+  assert.equal(stB.code, created.code);
+
+  a.close();
+  b.close();
+});
+
 test('two humans play a complete game to a winner', { timeout: 90000 }, async () => {
   const a = await connect();
   const b = await connect();
 
   const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
   assert.equal(created.ok, true);
-  assert.match(created.code, /^[A-Z2-9]{4}$/);
+  assert.match(created.code, /^[A-Z2-9]{6}$/);
 
   const joined = await emitAck(b, 'join', { name: 'Bob', code: created.code });
   assert.equal(joined.ok, true);
