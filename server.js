@@ -295,6 +295,13 @@ io.on('connection', (socket) => {
 
     const count = Math.max(0, Math.min(3, parseInt(bots, 10) || 0));
     for (let i = 0; i < count; i++) addBot(room);
+    if (count > 0) {
+      // Bots fill the seats, so there is nobody to wait for: skip the lobby and deal.
+      room.game.players[0].ready = true;
+      cb?.({ ok: true, code: room.code });
+      startGame(room);
+      return;
+    }
     cb?.({ ok: true, code: room.code });
     broadcast(room);
   });

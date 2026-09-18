@@ -10,7 +10,7 @@ Real-time multiplayer UNO. Express + Socket.IO backend, vanilla JS client (no fr
 ## Run / test
 - `npm install`
 - `npm start` (or `npm run dev` for watch) — serves `public/` + Socket.IO. `PORT` env overrides (default 3000).
-- `npm test` — `node:test` suite. Engine unit tests (`test/engine.test.js`) + socket.io-client integration that plays full games to a winner (`test/flow.test.js`). All 17 pass.
+- `npm test` — `node:test` suite. Engine unit tests (`test/engine.test.js`) + socket.io-client integration that plays full games to a winner (`test/flow.test.js`). All 18 pass.
 - Health: `GET /api/health` → `{"ok":true}`.
 - Docker: `docker compose up --build` — `Dockerfile` (node:22-alpine, non-root, healthcheck) + `docker-compose.yml` (port 3000). `.dockerignore` excludes node_modules/test.
 
@@ -29,7 +29,8 @@ Real-time multiplayer UNO. Express + Socket.IO backend, vanilla JS client (no fr
 - **Reverse:** flips direction, then `advance(players.length === 2 ? 2 : 1)`. Two players → acts as a skip (turn returns to the player). 3+ → moves to the next seat against the new direction.
 - **Turn/UNO:** `unoCalled` must be true to win on an empty hand; otherwise the player draws 2 (penalty). Bots auto-call UNO when they hit 1 card.
 - **Test state races:** attach a persistent `socket.on('state')` tracker *before* the first broadcast, or the initial state is missed and `awaitState` times out. The server broadcasts state before resolving the ack, so a cached `_st` is fresh after `emitAck` resolves.
-- **No auto-start.** Creating a table (even with bots) always lands in the lobby. Every human must emit `ready {on:true}` before the host's `start` is accepted; bots count as ready. `stateFor` carries `allReady` + per-player `ready` for the UI.
+- **Lobby is for party tables only.** `create` with bots > 0 deals straight away (creator is marked ready, `startGame` runs inside the create handler — no ready-up, no lobby). Party tables (the "Party" chip, 0 bots) wait in the lobby: every human must emit `ready {on:true}` before the host's `start` is accepted; bots count as ready. `stateFor` carries `allReady` + per-player `ready` for the UI.
+- **`#over` starts `hidden` in the HTML.** `renderOver` must set `over.hidden = false` on a normal game end (the `kicked` handler does it for the kicked screen). This was the "game won but the table just sits still" bug — the win screen was never unhidden, in any player count or outcome.
 - **Rematch flow (server-driven):** on `status === 'over'` the room gets a `room.rematch` with a per-human 30s timeout (`REMATCH_MS`, env-overridable — tests set it to 4000). `rematch {again:true}` records a vote and clears that player's timer; `{again:false}` routes to `leave()`. When every remaining human has voted, `maybeStartNext` locks (clears all timers — this is the "skip the rest"), broadcasts, emits `reshuffle {count}` to each human, and starts the next round after `RESHUFFLE_MS` (1800, the client's animation window). Timed-out humans are kicked via `kickPlayer(room, sid, 'timeout')`.
 - **`kickPlayer` is the single removal path** for kicked/timeout players: removes from `room.humans`, emits `kicked {reason:'host'|'timeout'}` to the victim, drops the seat (or bot-takes-over mid-game), transfers host if needed, and re-evaluates the rematch. Any new removal path should go through it.
 - **Room teardown goes through `destroyRoom`** (clears rematch timers + start timer + turn/bot timers, deletes from `rooms`). A room is destroyed whenever `room.humans.size === 0` — even mid-game (previously a all-bots room would leak and play forever).

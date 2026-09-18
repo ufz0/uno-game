@@ -204,6 +204,7 @@ function renderOver() {
     over.hidden = true;
     return;
   }
+  over.hidden = false;
   const winner = st.players.find((p) => p.index === st.winner);
   const iWon = st.winner === st.yourIndex;
   $('#over-title').textContent = iWon ? 'You win the table' : `${winner ? winner.name : 'Someone'} wins`;
