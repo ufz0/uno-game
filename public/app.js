@@ -399,7 +399,11 @@ function tryPlay(card) {
 }
 
 function onState(st) {
+  const prev = S.st;
   S.st = st;
+  // A fresh deal: reset card tracking so the new hand animates in and the
+  // set does not grow across rounds.
+  if (st.status === 'playing' && (!prev || prev.status !== 'playing')) S.knownHand.clear();
   if (st.status === 'lobby') show('lobby');
   else if (st.status === 'playing' || st.status === 'over') show('table');
   if (S.screen === 'lobby') renderLobby();
@@ -623,6 +627,7 @@ socket.on('chat', (m) => {
   const st = S.st;
   if (st && st.chat) {
     st.chat.push(m);
+    if (st.chat.length > 120) st.chat.shift();
     if (S.screen === 'table') renderChat();
   }
 });

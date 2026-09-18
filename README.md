@@ -1,6 +1,6 @@
 # UNO — the card table
 
-A real-time multiplayer UNO you can run anywhere. Create a table, share the 4-letter code, and play with 2–4 people — or pad the table with bots. Includes chat, a 30-second turn timer, and the full UNO ruleset (skip, reverse, draw-2, wild, wild-4, and the "forgot to say UNO" penalty).
+A real-time multiplayer UNO you can run anywhere. Create a table, share the six-letter code, and play with 2–4 people — or pad the table with bots. Includes chat, a 30-second turn timer, and the full UNO ruleset (skip, reverse, draw-2, wild, wild-4, and the "forgot to say UNO" penalty).
 
 ## Requirements
 
@@ -26,7 +26,7 @@ Builds a minimal Node 22 image (non-root, with a `/api/health` healthcheck) and 
 ## How to play
 
 1. Pick a name, add 0–3 bots if you're feeling lonely, and **Create table**.
-2. Share the 4-letter code. Friends **Join** with that code and a name.
+2. Share the six-letter code. Friends **Join** with that code and a name.
 3. Everyone hits **Ready** — the party leader (creator) can also kick players out of the lobby — then the leader hits **Deal**.
 4. Match the top card by color or value, play action cards, pick colors for wilds, and — when you're down to one card — press **UNO** before you play it, or you'll draw two as a penalty.
 5. First player to empty their hand (after a proper UNO shout) wins.
