@@ -124,12 +124,24 @@ function renderHand() {
   });
 
   const n = hand.children.length;
+  const cw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cw')) || 88;
+  const ch = (cw * 7) / 5;
+  const padX = parseFloat(getComputedStyle(hand).paddingLeft) || 0;
+  const avail = Math.max(0, hand.clientWidth - padX * 2);
+  const maxStep = cw * 0.4;
+  const mid = (n - 1) / 2;
+  const rotPerPos = n > 1 ? Math.min(3.2, 14 / mid) : 0;
+  const endRotRad = ((mid * rotPerPos) * Math.PI) / 180;
+  const endExtra = n > 1 ? (cw * Math.cos(endRotRad) + ch * Math.sin(endRotRad) - cw) / 2 : 0;
+  let step = maxStep;
+  if (n > 1) {
+    step = Math.min(maxStep, Math.max(0, (avail - cw - endExtra * 2) / (n - 1)));
+    hand.style.setProperty('--step', `${step.toFixed(2)}px`);
+  }
+  const squeeze = step / maxStep;
   [...hand.children].forEach((el, i) => {
-    const mid = (n - 1) / 2;
-    const rot = (i - mid) * 3.2;
-    const ty = Math.abs(i - mid) * 2.4;
-    el.style.setProperty('--rot', `${rot}deg`);
-    el.style.setProperty('--ty', `${ty}px`);
+    el.style.setProperty('--rot', `${((i - mid) * rotPerPos * squeeze).toFixed(2)}deg`);
+    el.style.setProperty('--ty', `${(Math.abs(i - mid) * 2.4 * squeeze).toFixed(2)}px`);
     el.style.zIndex = String(i);
   });
 
@@ -255,6 +267,10 @@ function updateTimer() {
 }
 
 setInterval(updateTimer, 250);
+
+window.addEventListener('resize', () => {
+  if (S.screen === 'table' && S.st) renderHand();
+});
 
 /* ---------- chat ---------- */
 
