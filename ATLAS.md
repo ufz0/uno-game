@@ -11,6 +11,7 @@ Real-time multiplayer UNO. Express + Socket.IO backend, vanilla JS client (no fr
 - `npm install`
 - `npm start` (or `npm run dev` for watch) — serves `public/` + Socket.IO. `PORT` env overrides (default 3000).
 - `npm test` — `node:test` suite. Engine unit tests (`test/engine.test.js`) + socket.io-client integration that plays full games to a winner (`test/flow.test.js`). All 18 pass.
+- CI: `.github/workflows/ci.yml` — GitHub Actions runs `npm ci && npm test` (node 22, matching the Docker image) on pushes to `dev`/`main` and PRs targeting `main`.
 - Health: `GET /api/health` → `{"ok":true}`.
 - Docker: `docker compose up --build` — `Dockerfile` (node:22-alpine, non-root, healthcheck) + `docker-compose.yml` (port 3000). `.dockerignore` excludes node_modules/test.
 
