@@ -459,6 +459,10 @@ function tryPlay(card) {
 function onState(st) {
   const prev = S.st;
   S.st = st;
+  // Must land before the renderers run: play detection asks "whose turn
+  // was it in the *previous* state", and a stale prevState attributes
+  // the played card to the wrong player (or to nobody).
+  S.prevState = prev;
   // A fresh deal: reset card tracking so the new hands animate in and
   // the sets do not grow across rounds.
   if (st.status === 'playing' && (!prev || prev.status !== 'playing')) {
@@ -479,7 +483,6 @@ function onState(st) {
     renderUnoButton();
     renderPass();
   }
-  S.prevState = prev;
 }
 
 function renderUnoButton() {
