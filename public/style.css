@@ -84,6 +84,7 @@ input {
 }
 input:focus { border-color: rgba(255, 255, 255, 0.45); }
 input::placeholder { color: rgba(241, 237, 226, 0.35); }
+.code-input { text-transform: uppercase; letter-spacing: 0.18em; font-weight: 700; }
 
 /* ---------- screens ---------- */
 
@@ -142,6 +143,12 @@ input::placeholder { color: rgba(241, 237, 226, 0.35); }
   font-size: 30px;
   color: #fff;
 }
+/* --i comes from the stylesheet, not inline styles (CSP blocks those) */
+.menu-deal .mcard:nth-child(1) { --i: 0; }
+.menu-deal .mcard:nth-child(2) { --i: 1; }
+.menu-deal .mcard:nth-child(3) { --i: 2; }
+.menu-deal .mcard:nth-child(4) { --i: 3; }
+.menu-deal .mcard:nth-child(5) { --i: 4; }
 .mcard.red { background: var(--red); }
 .mcard.yellow { background: var(--yellow); }
 .mcard.green { background: var(--green); }

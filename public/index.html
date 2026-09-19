@@ -15,12 +15,12 @@
 
     <section id="screen-menu" class="screen">
       <div class="menu">
-        <div class="menu-deal" aria-hidden="true">
-          <div class="mcard red" style="--i:0"><span>7</span></div>
-          <div class="mcard yellow" style="--i:1"><span>↻</span></div>
-          <div class="mcard green" style="--i:2"><span>+2</span></div>
-          <div class="mcard blue" style="--i:3"><span>⊘</span></div>
-          <div class="mcard wild" style="--i:4"><span>★</span></div>
+          <div class="menu-deal" aria-hidden="true">
+          <div class="mcard red"><span>7</span></div>
+          <div class="mcard yellow"><span>↻</span></div>
+          <div class="mcard green"><span>+2</span></div>
+          <div class="mcard blue"><span>⊘</span></div>
+          <div class="mcard wild"><span>★</span></div>
         </div>
         <h1 class="wordmark" aria-label="UNO"><span>U</span><span>N</span><span>O</span></h1>
         <p class="tagline">Four colors, one winner. Shout it when you have one card left.</p>
@@ -47,7 +47,7 @@
               <p class="hint">Ask for the six-letter code and sit down.</p>
               <label class="field">
                 <span>Table code</span>
-                <input id="join-code" maxlength="6" placeholder="CODE" autocomplete="off" style="text-transform:uppercase;letter-spacing:.18em;font-weight:700">
+                <input id="join-code" class="code-input" maxlength="6" placeholder="CODE" autocomplete="off">
               </label>
               <button class="btn ghost" id="btn-join">Join table</button>
             </div>
@@ -156,9 +156,7 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script type="importmap">
-    { "imports": { "three": "/vendor/three.module.min.js", "cannon-es": "/vendor/cannon-es.js" } }
-  </script>
+  <script type="importmap" src="/vendor/importmap.json"></script>
   <script type="module" src="/app.js"></script>
 </body>
 </html>
