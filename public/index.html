@@ -77,44 +77,33 @@
     </section>
 
     <section id="screen-table" class="screen hidden">
+      <div id="table3d" aria-label="3D card table"></div>
+      <div id="hud-labels" aria-hidden="true"></div>
+
       <header class="table-top">
         <div class="room-chip">Table <strong id="t-code"></strong></div>
+        <span class="dir-chip" id="t-dir" title="Turn direction">↻</span>
         <button class="btn ghost small" id="btn-chat">Chat</button>
       </header>
 
-      <main class="felt">
-        <div class="opps" id="opps"></div>
-        <div class="piles">
-          <div class="pile" id="deck-pile" title="Draw a card">
-            <div class="ring" id="timer-ring" hidden></div>
-            <div class="stack s1"></div>
-            <div class="stack s2"></div>
-            <div class="card back face-down"><div class="oval"></div><div class="face">UNO</div></div>
-          </div>
-          <div class="dir" id="t-dir" title="Turn direction">↻</div>
-          <div class="pile discard" id="discard-pile" title="Top card">
-            <div class="stack s1"></div>
-            <div id="discard-card"></div>
-          </div>
-        </div>
+      <div class="turn-timer" id="turn-timer" hidden>
+        <div class="tt-bar"><i></i></div>
+        <span>0s</span>
+      </div>
 
-        <div class="hand-zone">
-          <div class="my-plate" id="my-plate">
-            <span class="my-name" id="my-name">You</span>
-            <span class="my-count" id="my-count">0</span>
-          </div>
-          <div class="hand" id="hand" aria-label="Your cards"></div>
-        </div>
+      <div class="my-plate" id="my-plate">
+        <span class="my-name" id="my-name">You</span>
+        <span class="my-count" id="my-count">0</span>
+      </div>
 
-        <div class="pass-slot">
-          <button class="btn ghost" id="btn-pass" hidden>Pass turn</button>
-        </div>
+      <div class="pass-slot">
+        <button class="btn ghost" id="btn-pass" hidden>Pass turn</button>
+      </div>
 
-        <button id="btn-uno" title="Shout UNO when you have one card left" disabled>UNO!</button>
+      <button id="btn-uno" title="Shout UNO when you have one card left" disabled>UNO!</button>
 
-        <div class="uno-stamp" id="uno-stamp" aria-live="polite"><span class="u">U</span><span class="n">N</span><span class="o">O</span><em class="who" id="uno-who"></em></div>
-        <div class="toast" id="toast" role="status" hidden></div>
-      </main>
+      <div class="uno-stamp" id="uno-stamp" aria-live="polite"><span class="u">U</span><span class="n">N</span><span class="o">O</span><em class="who" id="uno-who"></em></div>
+      <div class="toast" id="toast" role="status" hidden></div>
 
       <aside class="chat" id="chat-panel" aria-label="Chat">
         <div class="chat-head">
@@ -162,12 +151,14 @@
         </div>
       </div>
 
-      <div id="shuffle-layer" hidden></div>
     </section>
 
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/app.js"></script>
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three.module.min.js", "cannon-es": "/vendor/cannon-es.js" } }
+  </script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

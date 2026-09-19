@@ -1,3 +1,5 @@
+import { createTable3D } from './table3d.js';
+
 const socket = io();
 
 const $ = (s) => document.querySelector(s);
@@ -6,25 +8,11 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 const S = {
   screen: 'menu',
   st: null,
-  prevState: null,
   botCount: 1,
   chatOpen: false,
   pendingWild: null,
-  lastTopId: null,
-  knownHand: new Set(),
   toastTimer: null,
   stampTimer: null,
-  shuffleTimer: null,
-  shuffling: false,
-};
-
-const COLOR_HEX = { red: '#e5311b', yellow: '#f2a900', green: '#009a4d', blue: '#0669b0' };
-
-// Where the opponent areas sit on the felt, by number of opponents.
-const OPP_POS = {
-  1: ['opp-top'],
-  2: ['opp-tl', 'opp-tr'],
-  3: ['opp-left', 'opp-top', 'opp-right'],
 };
 
 function esc(s) {
@@ -43,203 +31,41 @@ function show(screen) {
   }
 }
 
-/* ---------- card rendering ---------- */
+/* ---------- 3D table ---------- */
 
-function svgIcon(kind) {
-  const stroke = 'stroke="#fff" fill="none" stroke-width="11"';
-  switch (kind) {
-    case 'skip':
-      return `<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="31" ${stroke}/><line x1="28" y1="28" x2="72" y2="72" stroke="#fff" stroke-width="11"/></svg>`;
-    case 'reverse':
-      return `<svg viewBox="0 0 100 100" aria-hidden="true">
-        <path d="M30 60 a24 24 0 0 1 42 -14" ${stroke}/>
-        <path d="M70 40 a24 24 0 0 1 -42 14" ${stroke}/>
-        <polygon points="72,18 80,42 54,38" fill="#fff"/>
-        <polygon points="28,82 20,58 46,62" fill="#fff"/>
-      </svg>`;
-    case 'wild':
-    case 'wild4':
-      return `<svg viewBox="0 0 100 100" aria-hidden="true">
-        <circle cx="50" cy="50" r="37" fill="#fff"/>
-        <path d="M50 50 L50 13 A37 37 0 0 1 87 50 Z" fill="#e5311b"/>
-        <path d="M50 50 L87 50 A37 37 0 0 1 50 87 Z" fill="#f2a900"/>
-        <path d="M50 50 L50 87 A37 37 0 0 1 13 50 Z" fill="#009a4d"/>
-        <path d="M50 50 L13 50 A37 37 0 0 1 50 13 Z" fill="#0669b0"/>
-      </svg>`;
-  }
-  return null;
-}
+let T3D = null;
 
-function faceContent(card) {
-  if (card.kind === 'number') return card.value;
-  if (card.kind === 'draw2') return `<span class="plus">+<sup>2</sup></span>`;
-  const icon = svgIcon(card.kind);
-  return icon || card.value;
-}
-
-function cornerContent(card) {
-  if (card.kind === 'number') return card.value;
-  if (card.kind === 'draw2') return `+2`;
-  if (card.kind === 'wild4') return `+4`;
-  const icon = svgIcon(card.kind);
-  return icon || '';
-}
-
-function makeCard(card, { playable = false, dim = false } = {}) {
-  const el = document.createElement('div');
-  el.className = `card ${card.color}` + (playable ? ' ok' : '') + (dim ? ' dim' : '');
-  el.dataset.id = card.id;
-  el.innerHTML = `
-    <div class="oval"></div>
-    <div class="face">${faceContent(card)}</div>
-    <span class="corner tl">${cornerContent(card)}</span>
-    <span class="corner br">${cornerContent(card)}</span>`;
-  return el;
-}
-
-function backCard() {
-  const el = document.createElement('div');
-  el.className = 'card back';
-  el.innerHTML = `<div class="oval"></div><div class="face">UNO</div>`;
-  return el;
-}
-
-/* ---------- hand ---------- */
-
-// Spread `n` cards in `container` (whose cards are `cw` wide) into an
-// arced fan, compressing the step until the fan fits the container.
-function fan(container, n, cw) {
-  const ch = (cw * 7) / 5;
-  const padX = parseFloat(getComputedStyle(container).paddingLeft) || 0;
-  const avail = Math.max(0, container.clientWidth - padX * 2);
-  const maxStep = cw * 0.4;
-  const mid = (n - 1) / 2;
-  const rotPerPos = n > 1 ? Math.min(3.2, 14 / mid) : 0;
-  const endRotRad = ((mid * rotPerPos) * Math.PI) / 180;
-  const endExtra = n > 1 ? (cw * Math.cos(endRotRad) + ch * Math.sin(endRotRad) - cw) / 2 : 0;
-  let step = maxStep;
-  if (n > 1) {
-    step = Math.min(maxStep, Math.max(0, (avail - cw - endExtra * 2) / (n - 1)));
-    container.style.setProperty('--step', `${step.toFixed(2)}px`);
-  }
-  const squeeze = step / maxStep;
-  [...container.children].forEach((el, i) => {
-    el.style.setProperty('--rot', `${((i - mid) * rotPerPos * squeeze).toFixed(2)}deg`);
-    el.style.setProperty('--ty', `${(Math.abs(i - mid) * 2.4 * squeeze).toFixed(2)}px`);
-    el.style.zIndex = String(i);
+function ensureT3D() {
+  if (T3D) return T3D;
+  T3D = createTable3D($('#table3d'), {
+    labels: $('#hud-labels'),
+    onCardClick: (id) => {
+      const st = S.st;
+      if (!st || !st.canAct || !st.playable.includes(id)) return;
+      const card = st.yourHand.find((c) => c.id === id);
+      if (!card) return;
+      if (card.kind === 'wild' || card.kind === 'wild4') {
+        S.pendingWild = card.id;
+        $('#color-picker').hidden = false;
+      } else {
+        T3D.sim.releaseCard(id);
+        emit('play', { card: id });
+      }
+    },
+    onDeckClick: () => {
+      const st = S.st;
+      if (!st || !st.canAct) return;
+      emit('draw');
+    },
   });
+  return T3D;
 }
 
-function renderHand() {
-  const st = S.st;
-  if (!st) return;
-  const hand = $('#hand');
-  const cards = st.yourHand;
-  const playable = new Set(st.playable);
-  const myTurn = st.canAct;
-
-  const existing = new Map([...hand.children].map((el) => [el.dataset.id, el]));
-  const fresh = [];
-  cards.forEach((card) => {
-    let el = existing.get(card.id);
-    if (!el) {
-      el = makeCard(card, { playable: myTurn && playable.has(card.id), dim: myTurn && !playable.has(card.id) });
-      if (!S.knownHand.has(card.id) && S.st && S.st.status === 'playing') el.classList.add('just-in');
-      S.knownHand.add(card.id);
-      hand.appendChild(el);
-      fresh.push(el);
-    } else {
-      el.classList.toggle('ok', myTurn && playable.has(card.id));
-      el.classList.toggle('dim', myTurn && !playable.has(card.id));
-    }
-  });
-  existing.forEach((el, id) => {
-    if (!cards.find((c) => c.id === id) && !el.classList.contains('flying')) el.remove();
-  });
-
-  const cw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cw')) || 88;
-  fan(hand, hand.children.length, cw);
-
-  const myPlate = $('#my-plate');
+function renderPlate(st) {
   const me = st.players.find((p) => p.index === st.yourIndex);
   $('#my-name').textContent = me ? me.name : 'You';
-  $('#my-count').textContent = cards.length;
-  myPlate.classList.toggle('current', st.canAct);
-}
-
-/* ---------- opponents / piles ---------- */
-
-function renderOpps() {
-  const st = S.st;
-  const wrap = $('#opps');
-  const others = st.players.filter((p) => p.index !== st.yourIndex);
-  const positions = OPP_POS[others.length] || OPP_POS[1];
-  const prev = S.prevState;
-  // The top card only changes when someone plays — whoever's turn it was
-  // before this state is the one who played it.
-  const topChanged = !!(prev && prev.status === 'playing' && st.top && prev.top && st.top.id !== prev.top.id);
-  const actorIdx = topChanged ? prev.turn : -1;
-  const ocw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ocw')) || 56;
-
-  const existing = new Map([...wrap.children].map((el) => [el.dataset.idx, el]));
-  existing.forEach((el, idx) => {
-    if (!others.find((p) => p.index === Number(idx))) el.remove();
-  });
-
-  others.forEach((p, i) => {
-    let el = existing.get(String(p.index));
-    if (!el) {
-      el = document.createElement('div');
-      el.dataset.idx = p.index;
-      el.innerHTML = '<div class="opp-name"></div><div class="opp-hand"></div><div class="opp-count"></div>';
-      wrap.appendChild(el);
-    }
-    el.className = `opp ${positions[i]}${p.isCurrent ? ' current' : ''}${p.disconnected ? ' off' : ''}`;
-    el.querySelector('.opp-name').textContent = `${p.name}${p.isBot ? ' · bot' : ''}`;
-    const hand = el.querySelector('.opp-hand');
-
-    const playedHere = actorIdx === p.index && hand.children.length > 0;
-    if (playedHere) {
-      const backs = [...hand.children];
-      flyToDiscard(backs[Math.floor(backs.length / 2)], true);
-      backs[Math.floor(backs.length / 2)].remove();
-    }
-    const delta = p.handCount - hand.children.length;
-    if (delta > 0) {
-      for (let k = 0; k < delta; k++) {
-        const b = backCard();
-        b.classList.add('just-in');
-        hand.appendChild(b);
-      }
-    } else if (delta < 0) {
-      for (let k = 0; k < -delta; k++) hand.lastElementChild?.remove();
-    }
-
-    el.querySelector('.opp-count').textContent = p.handCount;
-    fan(hand, hand.children.length, ocw);
-  });
-}
-
-function renderPiles() {
-  const st = S.st;
-  $('#t-code').textContent = st.code;
-  $('#t-dir').textContent = st.direction === 1 ? '↻' : '↺';
-
-  const pile = $('#discard-pile');
-  pile.style.setProperty('--curcolor', st.currentColor ? COLOR_HEX[st.currentColor] : 'transparent');
-
-  const holder = $('#discard-card');
-  const top = st.top;
-  if (top) {
-    const current = holder.querySelector('.card');
-    if (!current || current.dataset.id !== top.id) {
-      holder.innerHTML = '';
-      const el = makeCard(top);
-      if (S.lastTopId) el.classList.add('in');
-      holder.appendChild(el);
-      S.lastTopId = top.id;
-    }
-  }
+  $('#my-count').textContent = (st.yourHand || []).length;
+  $('#my-plate').classList.toggle('current', !!st.canAct);
 }
 
 /* ---------- over / uno / toast ---------- */
@@ -304,102 +130,19 @@ function showUnoStamp(name) {
   S.stampTimer = setTimeout(() => s.classList.remove('show'), 1150);
 }
 
-/* ---------- flying card animation ---------- */
-
-function flyToDiscard(cardEl, isBack) {
-  const target = $('#discard-pile').getBoundingClientRect();
-  const start = cardEl.getBoundingClientRect();
-  const clone = isBack ? backCard() : cardEl.cloneNode(true);
-  clone.classList.add('flying');
-  // Size the inner card face to the source, so smaller opponent backs
-  // fly at the right scale (they lose their container's --cw on body).
-  clone.style.setProperty('--cw', `${start.width}px`);
-  clone.style.width = start.width + 'px';
-  clone.style.height = start.height + 'px';
-  clone.style.left = start.left + 'px';
-  clone.style.top = start.top + 'px';
-  clone.style.margin = '0';
-  document.body.appendChild(clone);
-
-  const dx = target.left + target.width / 2 - (start.left + start.width / 2);
-  const dy = target.top + target.height / 2 - (start.top + start.height / 2);
-  requestAnimationFrame(() => {
-    clone.style.transform = `translate(${dx}px, ${dy}px) rotate(${isBack ? -30 : -26}deg) scale(0.92)`;
-    clone.style.opacity = '0.4';
-  });
-  setTimeout(() => clone.remove(), 360);
-}
-
-/* ---------- reshuffle animation ---------- */
-
-function cleanupShuffle() {
-  S.shuffling = false;
-  clearTimeout(S.shuffleTimer);
-  const layer = $('#shuffle-layer');
-  layer.innerHTML = '';
-  layer.hidden = true;
-  $('#screen-table').classList.remove('shuffling');
-}
-
-function playReshuffle(count) {
-  cleanupShuffle();
-  const layer = $('#shuffle-layer');
-  layer.hidden = false;
-  S.shuffling = true;
-  $('#screen-table').classList.add('shuffling');
-  const disc = $('#discard-pile').getBoundingClientRect();
-  const deck = $('#deck-pile').getBoundingClientRect();
-  const cx = (r) => r.left + r.width / 2;
-  const cy = (r) => r.top + r.height / 2;
-  const n = Math.max(3, Math.min(count, 14));
-  const spread = Math.min(420, window.innerWidth * 0.5);
-  for (let i = 0; i < n; i++) {
-    const el = backCard();
-    el.classList.add('shuf');
-    el.style.width = disc.width + 'px';
-    el.style.height = disc.height + 'px';
-    const sx = cx(disc) + (Math.random() * 28 - 14);
-    const sy = cy(disc) + (Math.random() * 28 - 14);
-    const mx = window.innerWidth / 2 + (Math.random() * spread - spread / 2);
-    const my = Math.max(90, sy - 140 - Math.random() * 170);
-    el.style.left = sx + 'px';
-    el.style.top = sy + 'px';
-    layer.appendChild(el);
-    const dur = 1150 + i * 55 + Math.random() * 120;
-    el.animate(
-      [
-        { transform: 'translate(-50%, -50%) rotate(0deg) scale(1)', opacity: 1 },
-        {
-          transform: `translate(calc(-50% + ${(mx - sx).toFixed(1)}px), calc(-50% + ${(my - sy).toFixed(1)}px)) rotate(${(Math.random() * 540 - 270).toFixed(0)}deg) scale(1.06)`,
-          opacity: 1,
-          offset: 0.5,
-        },
-        {
-          transform: `translate(calc(-50% + ${(cx(deck) - sx).toFixed(1)}px), calc(-50% + ${(cy(deck) - sy).toFixed(1)}px)) rotate(${(Math.random() * 80 - 40).toFixed(0)}deg) scale(0.45)`,
-          opacity: 0,
-        },
-      ],
-      { duration: dur, delay: i * 40, easing: 'cubic-bezier(0.32, 0.72, 0.35, 1)', fill: 'forwards' }
-    );
-    setTimeout(() => el.remove(), dur + i * 40 + 80);
-  }
-  S.shuffleTimer = setTimeout(cleanupShuffle, 1900);
-}
-
-/* ---------- timer ring ---------- */
+/* ---------- timer ---------- */
 
 function updateTimer() {
   const st = S.st;
-  const ring = $('#timer-ring');
+  const bar = $('#turn-timer');
   if (!st || st.status !== 'playing' || !st.canAct || !st.turnDeadline) {
-    ring.hidden = true;
+    bar.hidden = true;
   } else {
-    ring.hidden = false;
+    bar.hidden = false;
     const total = st.turnTotal;
     const left = Math.max(0, st.turnDeadline - Date.now());
-    ring.style.setProperty('--p', Math.min(100, (left / total) * 100) + '%');
-    const secs = Math.ceil(left / 1000);
-    $('#deck-pile').title = secs <= 10 ? `Draw or act — ${secs}s left` : 'Draw a card';
+    bar.style.setProperty('--p', Math.min(100, (left / total) * 100) + '%');
+    bar.querySelector('span').textContent = Math.ceil(left / 1000) + 's';
   }
   const rm = st && st.status === 'over' ? st.rematch : null;
   const t = $('#rematch-timer');
@@ -413,13 +156,6 @@ function updateTimer() {
 }
 
 setInterval(updateTimer, 250);
-
-window.addEventListener('resize', () => {
-  if (S.screen === 'table' && S.st) {
-    renderHand();
-    renderOpps();
-  }
-});
 
 /* ---------- chat ---------- */
 
@@ -445,38 +181,25 @@ function emit(action, payload = {}) {
   });
 }
 
-function tryPlay(card) {
-  const st = S.st;
-  if (!st || !st.canAct) return;
-  if (card.kind === 'wild' || card.kind === 'wild4') {
-    S.pendingWild = card.id;
-    $('#color-picker').hidden = false;
-    return;
-  }
-  emit('play', { card: card.id });
-}
-
 function onState(st) {
+  // prev is passed straight into T3D.sync: play detection asks "whose
+  // turn was it in the *previous* state", and a stale prevState
+  // attributes the played card to the wrong player (or to nobody).
   const prev = S.st;
   S.st = st;
-  // Must land before the renderers run: play detection asks "whose turn
-  // was it in the *previous* state", and a stale prevState attributes
-  // the played card to the wrong player (or to nobody).
-  S.prevState = prev;
-  // A fresh deal: reset card tracking so the new hands animate in and
-  // the sets do not grow across rounds.
-  if (st.status === 'playing' && (!prev || prev.status !== 'playing')) {
-    S.knownHand.clear();
-    $('#opps').innerHTML = '';
-  }
   if (st.status === 'lobby') show('lobby');
   else if (st.status === 'playing' || st.status === 'over') show('table');
   if (S.screen === 'lobby') renderLobby();
   if (S.screen === 'table') {
-    if (st.status === 'playing') cleanupShuffle();
-    renderOpps();
-    renderPiles();
-    renderHand();
+    if (st.status === 'playing') {
+      ensureT3D();
+      T3D.sync(st, prev);
+      renderPlate(st);
+    } else if (T3D) {
+      T3D.setOver();
+    }
+    $('#t-code').textContent = st.code;
+    $('#t-dir').textContent = st.direction === 1 ? '↻' : '↺';
     renderChat();
     renderOver();
     updateTimer();
@@ -529,10 +252,7 @@ function menuError(msg) {
 
 function leaveToMenu() {
   S.st = null;
-  S.prevState = null;
-  S.knownHand.clear();
-  S.lastTopId = null;
-  $('#opps').innerHTML = '';
+  if (T3D) T3D.reset();
   socket.emit('leave');
   show('menu');
 }
@@ -593,36 +313,9 @@ $('#btn-copy').addEventListener('click', () => {
 
 /* ---------- table wiring ---------- */
 
-$('#hand').addEventListener('click', (e) => {
-  const el = e.target.closest('.card');
-  if (!el) return;
-  const st = S.st;
-  if (!st || !st.canAct) return;
-  if (!st.playable.includes(el.dataset.id)) return;
-  const card = st.yourHand.find((c) => c.id === el.dataset.id);
-  if (!card) return;
-  if (card.kind === 'wild' || card.kind === 'wild4') {
-    S.pendingWild = card.id;
-    $('#color-picker').hidden = false;
-  } else {
-    flyToDiscard(el, false);
-    el.style.opacity = '0';
-    emit('play', { card: card.id });
-  }
-});
-
-$('#deck-pile').addEventListener('click', () => {
-  const st = S.st;
-  if (!st || !st.canAct) return;
-  emit('draw');
-});
-
 $('#btn-uno').addEventListener('click', () => emit('uno'));
 
-$('#btn-pass').addEventListener('click', () => {
-  flyToDiscard($('#discard-pile .card'), true);
-  emit('pass');
-});
+$('#btn-pass').addEventListener('click', () => emit('pass'));
 
 $('#color-picker').addEventListener('click', (e) => {
   const btn = e.target.closest('.cp');
@@ -631,6 +324,7 @@ $('#color-picker').addEventListener('click', (e) => {
   $('#color-picker').hidden = true;
   const cardId = S.pendingWild;
   S.pendingWild = null;
+  if (T3D) T3D.sim.releaseCard(cardId, { flip: false });
   emit('play', { card: cardId, color });
 });
 $('#color-picker').addEventListener('click', (e) => {
@@ -674,7 +368,9 @@ socket.on('toast', (t) => showToast(t.text));
 
 socket.on('uno-shout', (u) => showUnoStamp(u.name));
 
-socket.on('reshuffle', (r) => playReshuffle(r.count));
+socket.on('reshuffle', () => {
+  if (T3D) T3D.reshuffle();
+});
 
 socket.on('kicked', (k) => {
   S.st = null;
