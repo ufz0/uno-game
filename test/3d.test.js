@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as CANNON from 'cannon-es';
+import * as CANNON from '../public/vendor/cannon-es.js';
 import { CardSim, buildScene, seatFor } from '../public/table3d.js';
 
 const STEP = 1 / 60;

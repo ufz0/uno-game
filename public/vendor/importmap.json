@@ -1,6 +1,0 @@
-{
-  "imports": {
-    "three": "/vendor/three.module.min.js",
-    "cannon-es": "/vendor/cannon-es.js"
-  }
-}

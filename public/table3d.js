@@ -1,5 +1,5 @@
-import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
+import * as THREE from './vendor/three.module.min.js';
+import * as CANNON from './vendor/cannon-es.js';
 
 /* ---------- shared constants ---------- */
 
