@@ -1,6 +1,6 @@
 # UNO — the card table
 
-A real-time multiplayer UNO you can run anywhere. Create a table, share the six-letter code, and play with 2–4 people — or pad the table with bots. Includes chat, a 30-second turn timer, and the full UNO ruleset (skip, reverse, draw-2, wild, wild-4, and the "forgot to say UNO" penalty).
+A real-time multiplayer UNO you can run anywhere. Create a table, share the six-letter code, and play with 2–4 people — or pad the table with bots. Includes chat, a 30-second turn timer, and the full UNO ruleset (skip, reverse, draw-2, wild, wild-4, and the "forgot to say UNO" penalty). Opponents sit around the table as fans of face-down cards — you always see their name and card count, never the cards themselves.
 
 ## Requirements
 

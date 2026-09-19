@@ -6,6 +6,7 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 const S = {
   screen: 'menu',
   st: null,
+  prevState: null,
   botCount: 1,
   chatOpen: false,
   pendingWild: null,
@@ -18,6 +19,13 @@ const S = {
 };
 
 const COLOR_HEX = { red: '#e5311b', yellow: '#f2a900', green: '#009a4d', blue: '#0669b0' };
+
+// Where the opponent areas sit on the felt, by number of opponents.
+const OPP_POS = {
+  1: ['opp-top'],
+  2: ['opp-tl', 'opp-tr'],
+  3: ['opp-left', 'opp-top', 'opp-right'],
+};
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -98,6 +106,30 @@ function backCard() {
 
 /* ---------- hand ---------- */
 
+// Spread `n` cards in `container` (whose cards are `cw` wide) into an
+// arced fan, compressing the step until the fan fits the container.
+function fan(container, n, cw) {
+  const ch = (cw * 7) / 5;
+  const padX = parseFloat(getComputedStyle(container).paddingLeft) || 0;
+  const avail = Math.max(0, container.clientWidth - padX * 2);
+  const maxStep = cw * 0.4;
+  const mid = (n - 1) / 2;
+  const rotPerPos = n > 1 ? Math.min(3.2, 14 / mid) : 0;
+  const endRotRad = ((mid * rotPerPos) * Math.PI) / 180;
+  const endExtra = n > 1 ? (cw * Math.cos(endRotRad) + ch * Math.sin(endRotRad) - cw) / 2 : 0;
+  let step = maxStep;
+  if (n > 1) {
+    step = Math.min(maxStep, Math.max(0, (avail - cw - endExtra * 2) / (n - 1)));
+    container.style.setProperty('--step', `${step.toFixed(2)}px`);
+  }
+  const squeeze = step / maxStep;
+  [...container.children].forEach((el, i) => {
+    el.style.setProperty('--rot', `${((i - mid) * rotPerPos * squeeze).toFixed(2)}deg`);
+    el.style.setProperty('--ty', `${(Math.abs(i - mid) * 2.4 * squeeze).toFixed(2)}px`);
+    el.style.zIndex = String(i);
+  });
+}
+
 function renderHand() {
   const st = S.st;
   if (!st) return;
@@ -125,27 +157,8 @@ function renderHand() {
     if (!cards.find((c) => c.id === id) && !el.classList.contains('flying')) el.remove();
   });
 
-  const n = hand.children.length;
   const cw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cw')) || 88;
-  const ch = (cw * 7) / 5;
-  const padX = parseFloat(getComputedStyle(hand).paddingLeft) || 0;
-  const avail = Math.max(0, hand.clientWidth - padX * 2);
-  const maxStep = cw * 0.4;
-  const mid = (n - 1) / 2;
-  const rotPerPos = n > 1 ? Math.min(3.2, 14 / mid) : 0;
-  const endRotRad = ((mid * rotPerPos) * Math.PI) / 180;
-  const endExtra = n > 1 ? (cw * Math.cos(endRotRad) + ch * Math.sin(endRotRad) - cw) / 2 : 0;
-  let step = maxStep;
-  if (n > 1) {
-    step = Math.min(maxStep, Math.max(0, (avail - cw - endExtra * 2) / (n - 1)));
-    hand.style.setProperty('--step', `${step.toFixed(2)}px`);
-  }
-  const squeeze = step / maxStep;
-  [...hand.children].forEach((el, i) => {
-    el.style.setProperty('--rot', `${((i - mid) * rotPerPos * squeeze).toFixed(2)}deg`);
-    el.style.setProperty('--ty', `${(Math.abs(i - mid) * 2.4 * squeeze).toFixed(2)}px`);
-    el.style.zIndex = String(i);
-  });
+  fan(hand, hand.children.length, cw);
 
   const myPlate = $('#my-plate');
   const me = st.players.find((p) => p.index === st.yourIndex);
@@ -156,16 +169,55 @@ function renderHand() {
 
 /* ---------- opponents / piles ---------- */
 
-function renderOpponents() {
+function renderOpps() {
   const st = S.st;
-  const wrap = $('#t-plates');
+  const wrap = $('#opps');
   const others = st.players.filter((p) => p.index !== st.yourIndex);
-  wrap.innerHTML = others.map((p) => `
-    <div class="plate ${p.isCurrent ? 'current' : ''} ${p.disconnected ? 'off' : ''}">
-      <div class="plate-backs"><i></i><i></i><i></i></div>
-      <div class="plate-name">${esc(p.name)}${p.isBot ? ' · bot' : ''}</div>
-      <div class="plate-count">${p.handCount}</div>
-    </div>`).join('');
+  const positions = OPP_POS[others.length] || OPP_POS[1];
+  const prev = S.prevState;
+  // The top card only changes when someone plays — whoever's turn it was
+  // before this state is the one who played it.
+  const topChanged = !!(prev && prev.status === 'playing' && st.top && prev.top && st.top.id !== prev.top.id);
+  const actorIdx = topChanged ? prev.turn : -1;
+  const ocw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ocw')) || 56;
+
+  const existing = new Map([...wrap.children].map((el) => [el.dataset.idx, el]));
+  existing.forEach((el, idx) => {
+    if (!others.find((p) => p.index === Number(idx))) el.remove();
+  });
+
+  others.forEach((p, i) => {
+    let el = existing.get(String(p.index));
+    if (!el) {
+      el = document.createElement('div');
+      el.dataset.idx = p.index;
+      el.innerHTML = '<div class="opp-name"></div><div class="opp-hand"></div><div class="opp-count"></div>';
+      wrap.appendChild(el);
+    }
+    el.className = `opp ${positions[i]}${p.isCurrent ? ' current' : ''}${p.disconnected ? ' off' : ''}`;
+    el.querySelector('.opp-name').textContent = `${p.name}${p.isBot ? ' · bot' : ''}`;
+    const hand = el.querySelector('.opp-hand');
+
+    const playedHere = actorIdx === p.index && hand.children.length > 0;
+    if (playedHere) {
+      const backs = [...hand.children];
+      flyToDiscard(backs[Math.floor(backs.length / 2)], true);
+      backs[Math.floor(backs.length / 2)].remove();
+    }
+    const delta = p.handCount - hand.children.length;
+    if (delta > 0) {
+      for (let k = 0; k < delta; k++) {
+        const b = backCard();
+        b.classList.add('just-in');
+        hand.appendChild(b);
+      }
+    } else if (delta < 0) {
+      for (let k = 0; k < -delta; k++) hand.lastElementChild?.remove();
+    }
+
+    el.querySelector('.opp-count').textContent = p.handCount;
+    fan(hand, hand.children.length, ocw);
+  });
 }
 
 function renderPiles() {
@@ -259,6 +311,9 @@ function flyToDiscard(cardEl, isBack) {
   const start = cardEl.getBoundingClientRect();
   const clone = isBack ? backCard() : cardEl.cloneNode(true);
   clone.classList.add('flying');
+  // Size the inner card face to the source, so smaller opponent backs
+  // fly at the right scale (they lose their container's --cw on body).
+  clone.style.setProperty('--cw', `${start.width}px`);
   clone.style.width = start.width + 'px';
   clone.style.height = start.height + 'px';
   clone.style.left = start.left + 'px';
@@ -360,7 +415,10 @@ function updateTimer() {
 setInterval(updateTimer, 250);
 
 window.addEventListener('resize', () => {
-  if (S.screen === 'table' && S.st) renderHand();
+  if (S.screen === 'table' && S.st) {
+    renderHand();
+    renderOpps();
+  }
 });
 
 /* ---------- chat ---------- */
@@ -401,15 +459,18 @@ function tryPlay(card) {
 function onState(st) {
   const prev = S.st;
   S.st = st;
-  // A fresh deal: reset card tracking so the new hand animates in and the
-  // set does not grow across rounds.
-  if (st.status === 'playing' && (!prev || prev.status !== 'playing')) S.knownHand.clear();
+  // A fresh deal: reset card tracking so the new hands animate in and
+  // the sets do not grow across rounds.
+  if (st.status === 'playing' && (!prev || prev.status !== 'playing')) {
+    S.knownHand.clear();
+    $('#opps').innerHTML = '';
+  }
   if (st.status === 'lobby') show('lobby');
   else if (st.status === 'playing' || st.status === 'over') show('table');
   if (S.screen === 'lobby') renderLobby();
   if (S.screen === 'table') {
     if (st.status === 'playing') cleanupShuffle();
-    renderOpponents();
+    renderOpps();
     renderPiles();
     renderHand();
     renderChat();
@@ -418,6 +479,7 @@ function onState(st) {
     renderUnoButton();
     renderPass();
   }
+  S.prevState = prev;
 }
 
 function renderUnoButton() {
@@ -464,8 +526,10 @@ function menuError(msg) {
 
 function leaveToMenu() {
   S.st = null;
+  S.prevState = null;
   S.knownHand.clear();
   S.lastTopId = null;
+  $('#opps').innerHTML = '';
   socket.emit('leave');
   show('menu');
 }
