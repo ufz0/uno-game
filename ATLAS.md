@@ -44,6 +44,7 @@ Real-time multiplayer UNO. Express + Socket.IO backend, vanilla JS client (no fr
 Felt-green table, wooden rail, UNO palette (red #e5311b, yellow #f2a900, green #009a4d, blue #0669b0), paper #f5f2e8, ink #10131a. Display: Archivo italic 800/900. Body: Instrument Sans. Cards = colored field + tilted oval tinted 50% card color / ink (`color-mix`) + white face — the tint is what makes hand cards identifiable by color. See `:root` tokens in `style.css`.
 
 ## Open / next
+- 3D table was attempted 2026-09 (three.js + cannon-es on `feature/3d-table`, physics fully working, 31 tests) — the user rejected the look and the branch was deleted (commits still in local reflog if ever wanted back). Do not retry 3D without the user asking.
 - Lint/typecheck not configured. No persistence (rooms are in-memory, lost on restart).
 - The server speaks plain HTTP — put a TLS-terminating proxy (Caddy/nginx) in front when exposing it beyond the LAN.
 - Lobby kick is humans-only (bots have their own remove control). Post-game, humans only choose again/leave — there is no host override by design.
