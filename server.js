@@ -40,7 +40,7 @@ const io = new Server(server, { cors: { origin: false } });
 
 const MAX_PLAYERS = 4;
 const MAX_ROOMS = Number(process.env.MAX_ROOMS) || 100;
-const TURN_MS = 30000;
+const TURN_MS = Number(process.env.TURN_MS) || 30000;
 const REMATCH_MS = Number(process.env.REMATCH_MS) || 30000;
 const RESHUFFLE_MS = 1800;
 const BOT_DELAY_MS = [1000, 2200];
