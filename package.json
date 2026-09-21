@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test --test-force-exit test/*.test.js"
+    "test": "node --test --test-force-exit test/*.test.js",
+    "docker:build": "PUSH=0 bash scripts/push-image.sh",
+    "docker:push": "bash scripts/push-image.sh"
   },
   "engines": {
     "node": ">=18"
