@@ -1,0 +1,31 @@
+name: publish-image
+
+# Publish the multi-arch image to GHCR on every push/merge to main,
+# plus on-demand. Auth via the GHCR_TOKEN repo secret (a token with
+# "packages: write"). The shared script handles login, buildx, and tags.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (cross-arch builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build + push (linux/amd64 + linux/arm64)
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: bash scripts/push-image.sh
