@@ -360,3 +360,293 @@ test('wrong code and full tables are rejected politely', { timeout: 30000 }, asy
   assert.ok(res.error);
   a.close();
 });
+
+async function waitUntil(fn, ms = 2000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    if (fn()) return true;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return fn();
+}
+
+test('bots can be added and removed in the lobby', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  assert.equal(created.ok, true);
+  const before = (await latest(a)).players.length;
+
+  const added = await emitAck(a, 'add-bot');
+  assert.equal(added.ok, true);
+  let st = await latest(a);
+  assert.equal(st.players.length, before + 1);
+  assert.ok(st.players.some((p) => p.isBot), 'a bot is now seated');
+
+  const botIdx = st.players.findIndex((p) => p.isBot);
+  const removed = await emitAck(a, 'remove-bot', { index: botIdx });
+  assert.equal(removed.ok, true);
+  st = await latest(a);
+  assert.equal(st.players.length, before, 'the bot seat is gone');
+
+  a.close();
+});
+
+test('add-bot is refused when the table is full or once play starts', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const created = await emitAck(a, 'create', { name: 'A1', bots: 0 });
+  const code = created.code;
+  const joiners = [];
+  for (const n of ['B1', 'C1', 'D1']) {
+    const s = await connect();
+    await emitAck(s, 'join', { name: n, code });
+    joiners.push(s);
+  }
+  const full = await emitAck(a, 'add-bot');
+  assert.equal(full.ok, false, 'four seats are occupied');
+  assert.match(full.error, /full/);
+
+  // and it is a lobby-only action
+  await emitAck(a, 'ready', { on: true });
+  for (const s of joiners) await emitAck(s, 'ready', { on: true });
+  await emitAck(a, 'start');
+  const late = await emitAck(a, 'add-bot');
+  assert.equal(late.ok, false);
+  assert.match(late.error, /before the game starts/);
+
+  a.close();
+  for (const s of joiners) s.close();
+});
+
+test('remove-bot rejects a seat that is not a bot', { timeout: 30000 }, async () => {
+  const a = await connect();
+  await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  await emitAck(a, 'add-bot');
+  const st = await latest(a);
+  const humanIdx = st.players.findIndex((p) => !p.isBot);
+  const res = await emitAck(a, 'remove-bot', { index: humanIdx });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /not a bot/i);
+  a.close();
+});
+
+test('a voluntary leave drops the seat in the lobby', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  await emitAck(b, 'join', { name: 'Bob', code: created.code });
+  const before = rooms.size;
+
+  a.emit('leave');
+  const stB = await awaitState(b, (x) => x.players.length === 1, 5000);
+  assert.equal(stB.players[0].name, 'Bob');
+  assert.equal(rooms.size, before, 'the table survives with Bob alone');
+
+  a.close();
+  b.close();
+});
+
+test('the last human leaving tears the room down', { timeout: 30000 }, async () => {
+  const c = await connect();
+  const before = rooms.size;
+  const created = await emitAck(c, 'create', { name: 'C', bots: 0 });
+  assert.equal(rooms.size, before + 1);
+
+  c.emit('leave');
+  assert.ok(await waitUntil(() => rooms.size === before), 'the empty room is destroyed');
+  assert.equal(created.ok, true, 'the create itself was fine');
+
+  c.close();
+});
+
+test('a disconnect mid-game marks the seat and the table keeps running', { timeout: 60000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  await emitAck(b, 'join', { name: 'Bob', code: created.code });
+  await emitAck(a, 'ready', { on: true });
+  await emitAck(b, 'ready', { on: true });
+  await emitAck(a, 'start');
+  await awaitState(a, (x) => x.status === 'playing', 5000);
+
+  a.close(); // Alice drops the connection
+
+  const st = await awaitState(b, (x) => x.players.some((p) => p.disconnected), 5000);
+  assert.equal(st.status, 'playing', 'the game is still going');
+  assert.equal(st.players.length, 2, 'Alice\'s seat is kept');
+  const away = st.players.find((p) => p.disconnected);
+  assert.equal(away.name, 'Alice');
+
+  b.close();
+});
+
+test('when the host drops, leadership passes to the next human', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  await emitAck(b, 'join', { name: 'Bob', code: created.code });
+
+  const bKick = await emitAck(b, 'kick', { index: 0 });
+  assert.equal(bKick.ok, false, 'Bob is not the host yet');
+  assert.match(bKick.error, /party leader/);
+
+  a.close(); // host drops
+
+  const st = await awaitState(b, (x) => x.isHost, 5000);
+  assert.equal(st.isHost, true, 'Bob now inherits the host role');
+  assert.equal(st.players.length, 1);
+
+  b.close();
+});
+
+test('shouting UNO is refused unless exactly one card is left', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  await emitAck(b, 'join', { name: 'Bob', code: created.code });
+  await emitAck(a, 'ready', { on: true });
+  await emitAck(b, 'ready', { on: true });
+  await emitAck(a, 'start');
+  await awaitState(a, (x) => x.status === 'playing', 5000);
+
+  const rejected = await emitAck(a, 'uno');
+  assert.equal(rejected.ok, false, 'a fresh hand has more than one card');
+  assert.match(rejected.error, /one card/);
+
+  a.close();
+  b.close();
+});
+
+test('a kick toasts everyone at the table', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const toastsA = [];
+  a.on('toast', (t) => toastsA.push(t.text));
+
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  await emitAck(b, 'join', { name: 'Bob', code: created.code });
+
+  await emitAck(a, 'kick', { index: 1 });
+  assert.ok(await waitUntil(() => toastsA.some((t) => /Bob was kicked/.test(t))), 'the kick toast reached the host');
+
+  a.close();
+  b.close();
+});
+
+test('player names are sanitised (dangerous characters stripped, length capped)', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const created = await emitAck(a, 'create', { name: '&<script>"hi"', bots: 0 });
+  const st = await latest(a);
+  assert.equal(st.players[0].name, 'scripthi', 'angle brackets, & and quotes are stripped');
+
+  const b = await connect();
+  await emitAck(b, 'join', { name: 'A'.repeat(40), code: created.code });
+  const st2 = await latest(a);
+  const long = st2.players.find((p) => p.name !== 'scripthi');
+  assert.equal(long.name.length, 16, 'long names are capped at 16 characters');
+
+  a.close();
+  b.close();
+});
+
+test('a table is full once four humans are seated', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const created = await emitAck(a, 'create', { name: 'A1', bots: 0 });
+  const code = created.code;
+  const joiners = [];
+  for (const n of ['B1', 'C1', 'D1']) {
+    const s = await connect();
+    const res = await emitAck(s, 'join', { name: n, code });
+    assert.equal(res.ok, true, `${n} seats themselves`);
+    joiners.push(s);
+  }
+  const late = await connect();
+  const full = await emitAck(late, 'join', { name: 'E1', code });
+  assert.equal(full.ok, false);
+  assert.match(full.error, /full/);
+
+  a.close();
+  late.close();
+  for (const s of joiners) s.close();
+});
+
+test('only the host can start the game', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  await emitAck(b, 'join', { name: 'Bob', code: created.code });
+
+  const notHost = await emitAck(b, 'start');
+  assert.equal(notHost.ok, false);
+  assert.match(notHost.error, /host/);
+
+  a.close();
+  b.close();
+});
+
+test('a player can withdraw their ready vote', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  await emitAck(b, 'join', { name: 'Bob', code: created.code });
+
+  await emitAck(a, 'ready', { on: true });
+  await emitAck(b, 'ready', { on: true });
+  await emitAck(b, 'ready', { on: false }); // Bob changes their mind
+
+  const blocked = await emitAck(a, 'start');
+  assert.equal(blocked.ok, false);
+  assert.match(blocked.error, /Bob/);
+
+  a.close();
+  b.close();
+});
+
+test('voting out of a rematch leaves the table', { timeout: 90000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  await emitAck(b, 'join', { name: 'Bob', code: created.code });
+  await emitAck(a, 'ready', { on: true });
+  await emitAck(b, 'ready', { on: true });
+  await emitAck(a, 'start');
+
+  await playToTheEnd(a, b);
+
+  const res = await emitAck(a, 'rematch', { again: false });
+  assert.equal(res.ok, true);
+  const stB = await awaitState(b, (x) => x.players.length === 1, 5000);
+  assert.equal(stB.players[0].name, 'Bob', 'Alice left; Bob holds the table');
+  assert.equal(stB.status, 'over');
+
+  a.close();
+  b.close();
+});
+
+test('game actions are refused when not seated at a table', { timeout: 30000 }, async () => {
+  const s = await connect();
+  for (const ev of ['play', 'draw', 'pass', 'start', 'rematch', 'add-bot', 'remove-bot', 'ready', 'kick', 'uno']) {
+    const res = await emitAck(s, ev);
+    assert.equal(res.ok, false, `${ev} is refused while unseated`);
+  }
+  s.emit('leave'); // a no-op when unseated, and it must not throw
+  s.emit('chat', { text: 'hi' });
+  await new Promise((r) => setTimeout(r, 20));
+  s.close();
+});
+
+test('blank chat messages are dropped', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const created = await emitAck(a, 'create', { name: 'A1', bots: 0 });
+  await emitAck(b, 'join', { name: 'B1', code: created.code });
+
+  let got = false;
+  b.on('chat', () => { got = true; });
+  a.emit('chat', { text: '   ' });
+  a.emit('chat', { text: '' });
+  await new Promise((r) => setTimeout(r, 120));
+  assert.equal(got, false, 'whitespace-only messages never reach the table');
+
+  a.close();
+  b.close();
+});

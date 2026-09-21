@@ -9,8 +9,9 @@ Real-time multiplayer UNO. Express + Socket.IO backend, vanilla JS client (no fr
 ## Run / test
 - `npm install`
 - `npm start` (or `npm run dev` for watch) — serves `public/` + Socket.IO. `PORT` env overrides (default 3000).
-- `npm test` — `node:test` suite. Engine unit tests (`test/engine.test.js`) + socket.io-client integration that plays full games to a winner (`test/flow.test.js`) + a room-cap test (`test/cap.test.js`). All 21 pass. The full suite takes ~2 minutes — `flow` plays real games on real timers; don't mistake that for a hang.
-- CI: `.github/workflows/ci.yml` — GitHub Actions runs `npm ci && npm test` (node 22, matching the Docker image) on pushes to `dev`/`main` and PRs targeting `main`.
+- `npm test` — `node:test` suite, 7 files, **70 tests, all pass**: `cards` (deck composition/shuffle/isWild), `bot` (the greedy brain), `engine` (full rules engine incl. callUno/canStart/reverse/draw2), `flow` (socket.io room lifecycle: create/join/ready/kick/start, add/remove-bot, voluntary leave, mid-game disconnect, host transfer, UNO, toasts, name sanitisation, full table, rematch vote + timeout + opt-out), `http` (health, static serving, security headers, 404s), `turn` (the turn-timer auto-pass), `cap` (room cap). The suite takes ~1–2 minutes — `flow`/`turn` play real games on real timers; don't mistake that for a hang. **Every test file runs in its own process**, and since the server is imported into that same process, *close every client socket at the end of a test* or `server.close()` in `after()` never resolves and the run hangs.
+- Timers are env-overridable for tests: `REMATCH_MS`, `MAX_ROOMS`, and now `TURN_MS` (all `Number(process.env.X) || default`). `turn.test.js` sets `TURN_MS=800` to observe the auto-pass; `cap.test.js` sets `MAX_ROOMS=3`.
+- CI: `.github/workflows/ci.yml` — two parallel jobs on pushes to `dev`/`main` and PRs targeting `main`, with `cancel-in-progress`. `syntax` runs `node --check` over every JS file (server/lib/public/test) as a fast gate; `test` runs `npm ci && npm test` across a **Node 20 / 22 / 24 matrix** (`fail-fast: false`). Node 22 matches the Docker image; Node 18 is past EOL and predates the `--test-force-exit` flag the test script uses, so it's intentionally not in the matrix. Verified green on Node 22 and 26 locally.
 - Health: `GET /api/health` → `{"ok":true}`.
 - Docker: `docker compose up --build` — `Dockerfile` (node:22-alpine, non-root, healthcheck) + `docker-compose.yml` (port 3000). `.dockerignore` excludes node_modules/test.
 
@@ -44,6 +45,6 @@ Felt-green table, wooden rail, UNO palette (red #e5311b, yellow #f2a900, green #
 
 ## Open / next
 - 3D table was attempted 2026-09 (three.js + cannon-es on `feature/3d-table`, physics fully working, 31 tests) — the user rejected the look and the branch was deleted (commits still in local reflog if ever wanted back). Do not retry 3D without the user asking.
-- Lint/typecheck not configured. No persistence (rooms are in-memory, lost on restart).
+- Lint/typecheck not configured (CI runs a `node --check` syntax pass over all JS as a cheap gate, but there's no ESLint/Prettier). No persistence (rooms are in-memory, lost on restart).
 - The server speaks plain HTTP — put a TLS-terminating proxy (Caddy/nginx) in front when exposing it beyond the LAN.
 - Lobby kick is humans-only (bots have their own remove control). Post-game, humans only choose again/leave — there is no host override by design.

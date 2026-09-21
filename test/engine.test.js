@@ -137,3 +137,195 @@ test('empty deck reshuffles the discard pile, keeping the top card', () => {
   assert.equal(g.discard[0], topCard);
   assert.equal(g.deck.length, 1);
 });
+
+test('callUno accepts exactly one card left, and nothing else', () => {
+  const g = setup();
+  g.players[0].hand = [{ id: 'a', color: 'red', value: '3', kind: 'number' }];
+  assert.equal(g.callUno(0).ok, true);
+  assert.equal(g.players[0].unoCalled, true);
+
+  g.players[0].hand = [];
+  const zero = g.callUno(0);
+  assert.equal(zero.ok, false);
+  assert.match(zero.error, /one card/);
+
+  g.players[0].hand = [
+    { id: 'a', color: 'red', value: '3', kind: 'number' },
+    { id: 'b', color: 'red', value: '4', kind: 'number' },
+  ];
+  assert.equal(g.callUno(0).ok, false, 'two cards left is not the moment to shout');
+
+  const missing = g.callUno(99);
+  assert.equal(missing.ok, false);
+  assert.match(missing.error, /no such player/i);
+});
+
+test('canStart enforces the 2-10 player window', () => {
+  const g = new Game();
+  g.addPlayer('P');
+  assert.equal(g.canStart(), false, 'one player is not enough');
+  g.addPlayer('Q');
+  assert.equal(g.canStart(), true, 'two players is the minimum');
+  while (g.players.length < 10) g.addPlayer('P');
+  assert.equal(g.canStart(), true, 'ten players is allowed');
+  g.addPlayer('P');
+  assert.equal(g.canStart(), false, 'eleven players is too many');
+});
+
+test('start() requires 2-10 players and never opens with a wild', () => {
+  const solo = new Game();
+  solo.addPlayer('Solo');
+  assert.throws(() => solo.start(), /2-10 players/);
+
+  for (let trial = 0; trial < 25; trial++) {
+    const g = new Game();
+    g.addPlayer('A');
+    g.addPlayer('B');
+    g.start();
+    assert.notEqual(g.top.kind, 'wild', `trial ${trial}: first card is not a wild`);
+    assert.notEqual(g.top.kind, 'wild4', `trial ${trial}: first card is not a wild4`);
+  }
+});
+
+test('top is null while the discard is empty, else the last card', () => {
+  const g = new Game();
+  g.addPlayer('A');
+  g.addPlayer('B');
+  g.start();
+  const saved = [...g.discard];
+  assert.ok(g.top, 'a started game always has a top card');
+  g.discard = [];
+  assert.equal(g.top, null);
+  g.discard = saved;
+  assert.equal(g.top, saved[saved.length - 1]);
+});
+
+test('nextIndex and advance honour a reversed direction and wrap around', () => {
+  const g = new Game();
+  for (let i = 0; i < 4; i++) g.addPlayer(`P${i}`);
+  g.start();
+  g.turn = 0;
+  g.direction = 1;
+  assert.equal(g.nextIndex(1), 1);
+  g.direction = -1;
+  assert.equal(g.nextIndex(1), 3, 'reversed: the next seat wraps to the previous one');
+  g.advance(1);
+  assert.equal(g.turn, 3);
+  g.advance(1);
+  assert.equal(g.turn, 2, 'keeps moving against the reversed direction');
+});
+
+test('removePlayer splices the seat and playerIndexById resolves by id', () => {
+  const g = new Game();
+  const i0 = g.addPlayer('A');
+  const i1 = g.addPlayer('B');
+  const i2 = g.addPlayer('C');
+  assert.equal(i0, 0);
+  assert.equal(g.playerIndexById(g.players[i1].id), i1);
+  g.removePlayer(i1);
+  assert.equal(g.players.length, 2);
+  assert.equal(g.players[0].name, 'A');
+  assert.equal(g.players[1].name, 'C', 'seats reindex after removal');
+  assert.equal(g.playerIndexById(g.players[1].id), 1);
+  assert.equal(g.playerIndexById('does-not-exist'), -1);
+});
+
+test('reset() returns to the lobby and clears all game state', () => {
+  const g = new Game();
+  g.addPlayer('A');
+  g.addPlayer('B');
+  g.start();
+  g.players[0].unoCalled = true;
+  g.players[0].disconnected = true;
+  g.winner = 0;
+  g.reset();
+  assert.equal(g.status, 'lobby');
+  assert.equal(g.deck.length, 0);
+  assert.equal(g.discard.length, 0);
+  assert.equal(g.winner, null);
+  assert.equal(g.currentColor, null);
+  assert.equal(g.players[0].hand.length, 0);
+  assert.equal(g.players[0].unoCalled, false);
+  assert.equal(g.players[0].disconnected, false);
+});
+
+test('playing a wild requires a legal chosen color', () => {
+  const g = setup();
+  const w = { id: 'w', color: 'wild', value: 'wild', kind: 'wild' };
+  g.players[0].hand = [w];
+  const noColor = g.playCard(0, 'w');
+  assert.equal(noColor.ok, false);
+  assert.match(noColor.error, /color/);
+  const badColor = g.playCard(0, 'w', 'purple');
+  assert.equal(badColor.ok, false);
+  assert.equal(g.players[0].hand.length, 1, 'a rejected wild is not consumed');
+});
+
+test('playCard rejects an unknown card, the wrong turn, and a finished game', () => {
+  const g = setup();
+  g.players[0].hand = [{ id: 'a', color: 'red', value: '3', kind: 'number' }];
+  assert.match(g.playCard(0, 'nope').error, /not in hand/i);
+  assert.match(g.playCard(1, 'a').error, /not your turn/i);
+  g.status = 'over';
+  assert.match(g.playCard(0, 'a').error, /not in progress/i);
+});
+
+test('skip with two players returns the turn to the player', () => {
+  const g = setup(2);
+  g.players[0].hand = [{ id: 's', color: 'red', value: 'skip', kind: 'skip' }];
+  const res = g.playCard(0, 's');
+  assert.equal(res.ok, true);
+  assert.equal(g.turn, 0, 'two-player skip sends the turn straight back');
+});
+
+test('reverse with four players sends the turn the long way round', () => {
+  const g = setup(4, 0);
+  g.players[0].hand = [{ id: 'r', color: 'red', value: 'reverse', kind: 'reverse' }];
+  const dirBefore = g.direction;
+  g.playCard(0, 'r');
+  assert.equal(g.direction, -dirBefore);
+  assert.equal(g.turn, 3, 'against the reversed direction the turn lands on seat 3');
+});
+
+test('pass requires a draw first; draw rejects the wrong turn and a finished game', () => {
+  const g = setup(2);
+  const noDraw = g.pass(0);
+  assert.equal(noDraw.ok, false);
+  assert.match(noDraw.error, /draw a card first/i);
+
+  assert.match(g.draw(1).error, /not your turn/i);
+  g.status = 'over';
+  assert.match(g.draw(0).error, /not in progress/i);
+});
+
+test('a card matches the top by value even in another color', () => {
+  const g = setup(); // top is a red 7
+  const blue7 = { id: 'b7', color: 'blue', value: '7', kind: 'number' };
+  g.players[0].hand = [blue7];
+  assert.equal(g.isPlayable(blue7), true, 'a blue 7 matches the red 7 by value');
+  const res = g.playCard(0, 'b7');
+  assert.equal(res.ok, true);
+  assert.equal(g.currentColor, 'blue', 'playing it flips the current color');
+});
+
+test('a draw2 played as the final card still deals its penalty', () => {
+  const g = setup(3);
+  g.players[0].hand = [{ id: 'd2', color: 'red', value: 'draw2', kind: 'draw2' }];
+  g.players[0].unoCalled = true;
+  const before = g.players[1].hand.length;
+  const res = g.playCard(0, 'd2');
+  assert.equal(res.ok, true);
+  assert.equal(res.penalty, 2, 'the draw2 effect resolved');
+  assert.equal(g.players[1].hand.length, before + 2);
+  assert.equal(g.status, 'over', 'it was the last card, so the game ends');
+  assert.equal(g.winner, 0);
+});
+
+test('playing any card clears the drewThisTurn flag', () => {
+  const g = setup(2);
+  g.draw(0);
+  assert.equal(g.drewThisTurn, true);
+  g.players[0].hand.push({ id: 'r3', color: 'red', value: '3', kind: 'number' });
+  g.playCard(0, 'r3');
+  assert.equal(g.drewThisTurn, false);
+});
