@@ -14,6 +14,7 @@ Real-time multiplayer UNO. Express + Socket.IO backend, vanilla JS client (no fr
 - CI: `.github/workflows/ci.yml` — two parallel jobs on pushes to `dev`/`main` and PRs targeting `main`, with `cancel-in-progress`. `syntax` runs `node --check` over every JS file (server/lib/public/test) as a fast gate; `test` runs `npm ci && npm test` across a **Node 20 / 22 / 24 matrix** (`fail-fast: false`). Node 22 matches the Docker image; Node 18 is past EOL and predates the `--test-force-exit` flag the test script uses, so it's intentionally not in the matrix. Verified green on Node 22 and 26 locally.
 - Health: `GET /api/health` → `{"ok":true}`.
 - Docker: `docker compose up --build` — `Dockerfile` (node:22-alpine, non-root, healthcheck) + `docker-compose.yml` (port 3000). `.dockerignore` excludes node_modules/test.
+- Image registry: `scripts/push-image.sh` builds the image and pushes it to GHCR as `ghcr.io/ufz0/uno-game` (tags default to `latest` + short git SHA; override with `TAGS=`, `IMAGE=`, `IMAGE_OWNER=`/`IMAGE_REPO=`). `npm run docker:push` runs it; `npm run docker:build` (or `PUSH=0`) builds without pushing. Auth: a `GITHUB_TOKEN`/`GHCR_TOKEN` with `packages: write`, or an existing `docker login ghcr.io`. Single-arch (host platform); multi-arch needs `docker buildx --platform`.
 
 ## Layout
 - `server.js` — Express static + Socket.IO rooms. One `rooms` Map keyed by 6-char code. Exports `{ app, server, io, rooms }` for tests.
@@ -21,6 +22,7 @@ Real-time multiplayer UNO. Express + Socket.IO backend, vanilla JS client (no fr
 - `lib/cards.js` — deck build (108 cards), shuffle, `isWild`.
 - `lib/bot.js` — `botMove(game, idx)` greedy card picker; mutates the game directly (server is single-threaded).
 - `public/` — `index.html` (menu → lobby → table screens), `style.css` (felt-table aesthetic), `app.js` (socket client + renderers).
+- `scripts/push-image.sh` — build + push the Docker image to GHCR (see "Image registry" above).
 - `test/` — node:test suites.
 
 ## Key conventions / gotchas (learned the hard way)
