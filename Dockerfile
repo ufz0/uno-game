@@ -10,6 +10,11 @@ COPY server.js ./
 COPY lib ./lib
 COPY public ./public
 
+# Room state persists to /app/data across restarts; the directory must exist
+# and be writable by the non-root user (a named volume picks up its
+# ownership from here on first use).
+RUN mkdir -p /app/data && chown node:node /app/data
+
 EXPOSE 3000
 USER node
 

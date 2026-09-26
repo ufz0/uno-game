@@ -1,3 +1,4 @@
+import './_env.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import io from 'socket.io-client';
@@ -28,7 +29,9 @@ function connect() {
   return new Promise((resolve, reject) => {
     const s = io(url, { transports: ['websocket'], forceNew: true });
     // Persistent tracker so we never miss a broadcast (attached before 'connect').
-    s.on('state', (st) => { s._st = st; });
+    s.on('state', (st) => {
+      s._st = st;
+    });
     s.on('connect', () => resolve(s));
     s.on('connect_error', reject);
   });
@@ -221,38 +224,42 @@ test('two humans play a complete game to a winner', { timeout: 90000 }, async ()
   b.close();
 });
 
-test('rematch: when everyone votes in, the next round deals immediately', { timeout: 90000 }, async () => {
-  const a = await connect();
-  const b = await connect();
-  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
-  await emitAck(b, 'join', { name: 'Bob', code: created.code });
-  await emitAck(a, 'ready', { on: true });
-  await emitAck(b, 'ready', { on: true });
-  await emitAck(a, 'start');
+test(
+  'rematch: when everyone votes in, the next round deals immediately',
+  { timeout: 90000 },
+  async () => {
+    const a = await connect();
+    const b = await connect();
+    const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+    await emitAck(b, 'join', { name: 'Bob', code: created.code });
+    await emitAck(a, 'ready', { on: true });
+    await emitAck(b, 'ready', { on: true });
+    await emitAck(a, 'start');
 
-  const st = await playToTheEnd(a, b);
-  assert.equal(st.status, 'over');
-  assert.ok(st.rematch && !st.rematch.locked);
+    const st = await playToTheEnd(a, b);
+    assert.equal(st.status, 'over');
+    assert.ok(st.rematch && !st.rematch.locked);
 
-  const reshufA = new Promise((r) => a.on('reshuffle', r));
-  const reshufB = new Promise((r) => b.on('reshuffle', r));
-  const t0 = Date.now();
-  await emitAck(a, 'rematch', { again: true });
-  await emitAck(b, 'rematch', { again: true });
-  assert.ok((await reshufA).count >= 1);
-  await reshufB;
+    const reshufA = new Promise((r) => a.on('reshuffle', r));
+    const reshufB = new Promise((r) => b.on('reshuffle', r));
+    const t0 = Date.now();
+    await emitAck(a, 'rematch', { again: true });
+    await emitAck(b, 'rematch', { again: true });
+    assert.ok((await reshufA).count >= 1);
+    await reshufB;
 
-  const st2 = await awaitState(a, (x) => x.status === 'playing', 3500);
-  assert.ok(Date.now() - t0 < 3500, 'the remaining rematch timer should be skipped');
-  assert.equal(st2.players.length, 2);
-  assert.equal(st2.yourHand.length, 7);
+    const st2 = await awaitState(a, (x) => x.status === 'playing', 3500);
+    assert.ok(Date.now() - t0 < 3500, 'the remaining rematch timer should be skipped');
+    assert.equal(st2.players.length, 2);
+    assert.equal(st2.yourHand.length, 7);
 
-  // play the second round out so the table can be torn down cleanly
-  await playToTheEnd(a, b);
+    // play the second round out so the table can be torn down cleanly
+    await playToTheEnd(a, b);
 
-  a.close();
-  b.close();
-});
+    a.close();
+    b.close();
+  },
+);
 
 test('rematch: players who do not vote in time are kicked', { timeout: 60000 }, async () => {
   const a = await connect();
@@ -276,73 +283,84 @@ test('rematch: players who do not vote in time are kicked', { timeout: 60000 }, 
   b.close();
 });
 
-test('tables with bots deal straight away; a human plus three bots plays to a winner', { timeout: 120000 }, async () => {
-  const a = await connect();
-  const b = await connect();
+test(
+  'tables with bots deal straight away; a human plus three bots plays to a winner',
+  { timeout: 120000 },
+  async () => {
+    const a = await connect();
+    const b = await connect();
 
-  const created = await emitAck(a, 'create', { name: 'Host', bots: 3 });
-  assert.equal(created.ok, true);
+    const created = await emitAck(a, 'create', { name: 'Host', bots: 3 });
+    assert.equal(created.ok, true);
 
-  // no lobby for bot tables: the first deal lands right after create
-  const stPlaying = await awaitState(a, (x) => x.status === 'playing', 5000);
-  assert.equal(stPlaying.players.length, 4);
+    // no lobby for bot tables: the first deal lands right after create
+    const stPlaying = await awaitState(a, (x) => x.status === 'playing', 5000);
+    assert.equal(stPlaying.players.length, 4);
 
-  // the game is already running, so late joiners are refused
-  const joined = await emitAck(b, 'join', { name: 'Late', code: created.code });
-  assert.equal(joined.ok, false);
-  assert.match(joined.error, /already started/);
+    // the game is already running, so late joiners are refused
+    const joined = await emitAck(b, 'join', { name: 'Late', code: created.code });
+    assert.equal(joined.ok, false);
+    assert.match(joined.error, /already started/);
 
-  for (let i = 0; i < 400; i++) {
-    const st = await awaitState(a, (x) => x.status === 'over' || x.canAct, 30000);
-    if (st.status === 'over') break;
-    await act(a);
-  }
+    for (let i = 0; i < 400; i++) {
+      const st = await awaitState(a, (x) => x.status === 'over' || x.canAct, 30000);
+      if (st.status === 'over') break;
+      await act(a);
+    }
 
-  const final = await awaitState(a, (st) => st.status === 'over', 120000);
-  assert.ok(final.winner !== null);
+    const final = await awaitState(a, (st) => st.status === 'over', 120000);
+    assert.ok(final.winner !== null);
 
-  a.close();
-  b.close();
-});
+    a.close();
+    b.close();
+  },
+);
 
-test('a solo table with one bot plays to a winner and rematches alone', { timeout: 180000 }, async () => {
-  const a = await connect();
+test(
+  'a solo table with one bot plays to a winner and rematches alone',
+  { timeout: 180000 },
+  async () => {
+    const a = await connect();
 
-  const created = await emitAck(a, 'create', { name: 'Solo', bots: 1 });
-  assert.equal(created.ok, true);
+    const created = await emitAck(a, 'create', { name: 'Solo', bots: 1 });
+    assert.equal(created.ok, true);
 
-  // straight to the table, no ready-up
-  const st = await awaitState(a, (x) => x.status === 'playing', 5000);
-  assert.equal(st.players.length, 2);
-  assert.ok(st.players.some((p) => p.isBot));
+    // straight to the table, no ready-up
+    const st = await awaitState(a, (x) => x.status === 'playing', 5000);
+    assert.equal(st.players.length, 2);
+    assert.ok(st.players.some((p) => p.isBot));
 
-  for (let i = 0; i < 400; i++) {
-    const cur = await awaitState(a, (x) => x.status === 'over' || x.canAct, 30000);
-    if (cur.status === 'over') break;
-    await act(a);
-  }
+    for (let i = 0; i < 400; i++) {
+      const cur = await awaitState(a, (x) => x.status === 'over' || x.canAct, 30000);
+      if (cur.status === 'over') break;
+      await act(a);
+    }
 
-  const over = await awaitState(a, (x) => x.status === 'over', 120000);
-  assert.ok(over.winner !== null);
-  assert.ok(over.rematch && !over.rematch.locked);
+    const over = await awaitState(a, (x) => x.status === 'over', 120000);
+    assert.ok(over.winner !== null);
+    assert.ok(over.rematch && !over.rematch.locked);
 
-  // one human voting is enough to run it back
-  const reshuf = new Promise((r) => a.on('reshuffle', r));
-  await emitAck(a, 'rematch', { again: true });
-  assert.ok((await reshuf).count >= 1);
+    // one human voting is enough to run it back
+    const reshuf = new Promise((r) => a.on('reshuffle', r));
+    await emitAck(a, 'rematch', { again: true });
+    assert.ok((await reshuf).count >= 1);
 
-  const next = await awaitState(a, (x) => x.status === 'playing', 5000);
-  assert.equal(next.players.length, 2);
-  assert.equal(next.yourHand.length, 7);
+    const next = await awaitState(a, (x) => x.status === 'playing', 5000);
+    assert.equal(next.players.length, 2);
+    assert.equal(next.yourHand.length, 7);
 
-  a.close();
-});
+    a.close();
+  },
+);
 
 test('chat is relayed to the table', { timeout: 30000 }, async () => {
   const a = await connect();
   const b = await connect();
   await emitAck(a, 'create', { name: 'A1', bots: 0 });
-  await emitAck(b, 'join', { name: 'B1', code: (a._st?.code) || (await awaitState(a, () => true)).code });
+  await emitAck(b, 'join', {
+    name: 'B1',
+    code: a._st?.code || (await awaitState(a, () => true)).code,
+  });
 
   const got = new Promise((r) => b.on('chat', r));
   a.emit('chat', { text: 'hello table' });
@@ -358,10 +376,15 @@ test('chat is throttled per socket', { timeout: 30000 }, async () => {
   const a = await connect();
   const b = await connect();
   await emitAck(a, 'create', { name: 'A1', bots: 0 });
-  await emitAck(b, 'join', { name: 'B1', code: (a._st?.code) || (await awaitState(a, () => true)).code });
+  await emitAck(b, 'join', {
+    name: 'B1',
+    code: a._st?.code || (await awaitState(a, () => true)).code,
+  });
 
   let count = 0;
-  b.on('chat', () => { count++; });
+  b.on('chat', () => {
+    count++;
+  });
   a.emit('chat', { text: 'one' });
   a.emit('chat', { text: 'two' }); // inside the CHAT_MIN_MS window: dropped
   await new Promise((r) => setTimeout(r, 1100)); // wait past the window
@@ -400,7 +423,10 @@ test('bots can be added and removed in the lobby', { timeout: 30000 }, async () 
   assert.equal(added.ok, true);
   let st = await latest(a);
   assert.equal(st.players.length, before + 1);
-  assert.ok(st.players.some((p) => p.isBot), 'a bot is now seated');
+  assert.ok(
+    st.players.some((p) => p.isBot),
+    'a bot is now seated',
+  );
 
   const botIdx = st.players.findIndex((p) => p.isBot);
   const removed = await emitAck(a, 'remove-bot', { index: botIdx });
@@ -411,31 +437,35 @@ test('bots can be added and removed in the lobby', { timeout: 30000 }, async () 
   a.close();
 });
 
-test('add-bot is refused when the table is full or once play starts', { timeout: 30000 }, async () => {
-  const a = await connect();
-  const created = await emitAck(a, 'create', { name: 'A1', bots: 0 });
-  const code = created.code;
-  const joiners = [];
-  for (const n of ['B1', 'C1', 'D1']) {
-    const s = await connect();
-    await emitAck(s, 'join', { name: n, code });
-    joiners.push(s);
-  }
-  const full = await emitAck(a, 'add-bot');
-  assert.equal(full.ok, false, 'four seats are occupied');
-  assert.match(full.error, /full/);
+test(
+  'add-bot is refused when the table is full or once play starts',
+  { timeout: 30000 },
+  async () => {
+    const a = await connect();
+    const created = await emitAck(a, 'create', { name: 'A1', bots: 0 });
+    const code = created.code;
+    const joiners = [];
+    for (const n of ['B1', 'C1', 'D1']) {
+      const s = await connect();
+      await emitAck(s, 'join', { name: n, code });
+      joiners.push(s);
+    }
+    const full = await emitAck(a, 'add-bot');
+    assert.equal(full.ok, false, 'four seats are occupied');
+    assert.match(full.error, /full/);
 
-  // and it is a lobby-only action
-  await emitAck(a, 'ready', { on: true });
-  for (const s of joiners) await emitAck(s, 'ready', { on: true });
-  await emitAck(a, 'start');
-  const late = await emitAck(a, 'add-bot');
-  assert.equal(late.ok, false);
-  assert.match(late.error, /before the game starts/);
+    // and it is a lobby-only action
+    await emitAck(a, 'ready', { on: true });
+    for (const s of joiners) await emitAck(s, 'ready', { on: true });
+    await emitAck(a, 'start');
+    const late = await emitAck(a, 'add-bot');
+    assert.equal(late.ok, false);
+    assert.match(late.error, /before the game starts/);
 
-  a.close();
-  for (const s of joiners) s.close();
-});
+    a.close();
+    for (const s of joiners) s.close();
+  },
+);
 
 test('remove-bot rejects a seat that is not a bot', { timeout: 30000 }, async () => {
   const a = await connect();
@@ -478,58 +508,66 @@ test('the last human leaving tears the room down', { timeout: 30000 }, async () 
   c.close();
 });
 
-test('a disconnect mid-game marks the seat and the table keeps running', { timeout: 60000 }, async () => {
-  const a = await connect();
-  const b = await connect();
-  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
-  await emitAck(b, 'join', { name: 'Bob', code: created.code });
-  await emitAck(a, 'ready', { on: true });
-  await emitAck(b, 'ready', { on: true });
-  await emitAck(a, 'start');
-  await awaitState(a, (x) => x.status === 'playing', 5000);
+test(
+  'a disconnect mid-game marks the seat and the table keeps running',
+  { timeout: 60000 },
+  async () => {
+    const a = await connect();
+    const b = await connect();
+    const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+    await emitAck(b, 'join', { name: 'Bob', code: created.code });
+    await emitAck(a, 'ready', { on: true });
+    await emitAck(b, 'ready', { on: true });
+    await emitAck(a, 'start');
+    await awaitState(a, (x) => x.status === 'playing', 5000);
 
-  a.close(); // Alice drops the connection
+    a.close(); // Alice drops the connection
 
-  const st = await awaitState(b, (x) => x.players.some((p) => p.disconnected), 5000);
-  assert.equal(st.status, 'playing', 'the game is still going');
-  assert.equal(st.players.length, 2, 'Alice\'s seat is kept');
-  const away = st.players.find((p) => p.disconnected);
-  assert.equal(away.name, 'Alice');
+    const st = await awaitState(b, (x) => x.players.some((p) => p.disconnected), 5000);
+    assert.equal(st.status, 'playing', 'the game is still going');
+    assert.equal(st.players.length, 2, "Alice's seat is kept");
+    const away = st.players.find((p) => p.disconnected);
+    assert.equal(away.name, 'Alice');
 
-  b.close();
-});
+    b.close();
+  },
+);
 
-test('a disconnected player can rejoin their seat with code + name', { timeout: 60000 }, async () => {
-  const a = await connect();
-  const b = await connect();
-  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
-  assert.equal(created.ok, true);
-  await emitAck(b, 'join', { name: 'Bob', code: created.code });
-  await emitAck(a, 'ready', { on: true });
-  await emitAck(b, 'ready', { on: true });
-  await emitAck(a, 'start');
-  await awaitState(a, (x) => x.status === 'playing', 5000);
+test(
+  'a disconnected player can rejoin their seat with code + name',
+  { timeout: 60000 },
+  async () => {
+    const a = await connect();
+    const b = await connect();
+    const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+    assert.equal(created.ok, true);
+    await emitAck(b, 'join', { name: 'Bob', code: created.code });
+    await emitAck(a, 'ready', { on: true });
+    await emitAck(b, 'ready', { on: true });
+    await emitAck(a, 'start');
+    await awaitState(a, (x) => x.status === 'playing', 5000);
 
-  a.close(); // Alice drops mid-round; her seat stays, marked disconnected
+    a.close(); // Alice drops mid-round; her seat stays, marked disconnected
 
-  const a2 = await connect(); // a fresh socket — what a browser reconnect looks like
-  const res = await emitAck(a2, 'rejoin', { code: created.code, name: 'Alice' });
-  assert.equal(res.ok, true, 'the seat comes back to the right name');
+    const a2 = await connect(); // a fresh socket — what a browser reconnect looks like
+    const res = await emitAck(a2, 'rejoin', { code: created.code, name: 'Alice' });
+    assert.equal(res.ok, true, 'the seat comes back to the right name');
 
-  const st2 = await awaitState(a2, (x) => x.status === 'playing' && x.yourIndex >= 0, 5000);
-  assert.equal(st2.players[st2.yourIndex].name, 'Alice', 'the rejoiner sits in Alice\'s seat');
-  const stB = await awaitState(b, (x) => !x.players.some((p) => p.disconnected), 5000);
-  assert.equal(stB.status, 'playing');
-  assert.equal(stB.players.length, 2);
+    const st2 = await awaitState(a2, (x) => x.status === 'playing' && x.yourIndex >= 0, 5000);
+    assert.equal(st2.players[st2.yourIndex].name, 'Alice', "the rejoiner sits in Alice's seat");
+    const stB = await awaitState(b, (x) => !x.players.some((p) => p.disconnected), 5000);
+    assert.equal(stB.status, 'playing');
+    assert.equal(stB.players.length, 2);
 
-  const stranger = await connect();
-  const wrong = await emitAck(stranger, 'rejoin', { code: created.code, name: 'Stranger' });
-  assert.equal(wrong.ok, false, 'no matching seat, no seat back');
+    const stranger = await connect();
+    const wrong = await emitAck(stranger, 'rejoin', { code: created.code, name: 'Stranger' });
+    assert.equal(wrong.ok, false, 'no matching seat, no seat back');
 
-  a2.close();
-  b.close();
-  stranger.close();
-});
+    a2.close();
+    b.close();
+    stranger.close();
+  },
+);
 
 test('when the host drops, leadership passes to the next human', { timeout: 30000 }, async () => {
   const a = await connect();
@@ -578,27 +616,34 @@ test('a kick toasts everyone at the table', { timeout: 30000 }, async () => {
   await emitAck(b, 'join', { name: 'Bob', code: created.code });
 
   await emitAck(a, 'kick', { index: 1 });
-  assert.ok(await waitUntil(() => toastsA.some((t) => /Bob was kicked/.test(t))), 'the kick toast reached the host');
+  assert.ok(
+    await waitUntil(() => toastsA.some((t) => /Bob was kicked/.test(t))),
+    'the kick toast reached the host',
+  );
 
   a.close();
   b.close();
 });
 
-test('player names are sanitised (dangerous characters stripped, length capped)', { timeout: 30000 }, async () => {
-  const a = await connect();
-  const created = await emitAck(a, 'create', { name: '&<script>"hi"', bots: 0 });
-  const st = await latest(a);
-  assert.equal(st.players[0].name, 'scripthi', 'angle brackets, & and quotes are stripped');
+test(
+  'player names are sanitised (dangerous characters stripped, length capped)',
+  { timeout: 30000 },
+  async () => {
+    const a = await connect();
+    const created = await emitAck(a, 'create', { name: '&<script>"hi"', bots: 0 });
+    const st = await latest(a);
+    assert.equal(st.players[0].name, 'scripthi', 'angle brackets, & and quotes are stripped');
 
-  const b = await connect();
-  await emitAck(b, 'join', { name: 'A'.repeat(40), code: created.code });
-  const st2 = await latest(a);
-  const long = st2.players.find((p) => p.name !== 'scripthi');
-  assert.equal(long.name.length, 16, 'long names are capped at 16 characters');
+    const b = await connect();
+    await emitAck(b, 'join', { name: 'A'.repeat(40), code: created.code });
+    const st2 = await latest(a);
+    const long = st2.players.find((p) => p.name !== 'scripthi');
+    assert.equal(long.name.length, 16, 'long names are capped at 16 characters');
 
-  a.close();
-  b.close();
-});
+    a.close();
+    b.close();
+  },
+);
 
 test('a table is full once four humans are seated', { timeout: 30000 }, async () => {
   const a = await connect();
@@ -676,7 +721,19 @@ test('voting out of a rematch leaves the table', { timeout: 90000 }, async () =>
 
 test('game actions are refused when not seated at a table', { timeout: 30000 }, async () => {
   const s = await connect();
-  for (const ev of ['play', 'draw', 'pass', 'start', 'rematch', 'add-bot', 'remove-bot', 'ready', 'kick', 'uno', 'rejoin']) {
+  for (const ev of [
+    'play',
+    'draw',
+    'pass',
+    'start',
+    'rematch',
+    'add-bot',
+    'remove-bot',
+    'ready',
+    'kick',
+    'uno',
+    'rejoin',
+  ]) {
     const res = await emitAck(s, ev);
     assert.equal(res.ok, false, `${ev} is refused while unseated`);
   }
@@ -693,7 +750,9 @@ test('blank chat messages are dropped', { timeout: 30000 }, async () => {
   await emitAck(b, 'join', { name: 'B1', code: created.code });
 
   let got = false;
-  b.on('chat', () => { got = true; });
+  b.on('chat', () => {
+    got = true;
+  });
   a.emit('chat', { text: '   ' });
   a.emit('chat', { text: '' });
   await new Promise((r) => setTimeout(r, 120));

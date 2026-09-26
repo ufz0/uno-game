@@ -1,3 +1,4 @@
+import './_env.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -57,5 +58,9 @@ test('security headers are set on the served page and static assets', async () =
 
 test('unknown routes and missing files 404', async () => {
   assert.equal((await fetch(`${base}/api/nope`)).status, 404, 'unknown API route');
-  assert.equal((await fetch(`${base}/definitely-not-a-file.js`)).status, 404, 'missing static file');
+  assert.equal(
+    (await fetch(`${base}/definitely-not-a-file.js`)).status,
+    404,
+    'missing static file',
+  );
 });

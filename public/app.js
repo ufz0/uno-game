@@ -28,7 +28,10 @@ const OPP_POS = {
 };
 
 function esc(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  return String(s).replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+  );
 }
 
 function show(screen) {
@@ -115,7 +118,7 @@ function fan(container, n, cw) {
   const maxStep = cw * 0.4;
   const mid = (n - 1) / 2;
   const rotPerPos = n > 1 ? Math.min(3.2, 14 / mid) : 0;
-  const endRotRad = ((mid * rotPerPos) * Math.PI) / 180;
+  const endRotRad = (mid * rotPerPos * Math.PI) / 180;
   const endExtra = n > 1 ? (cw * Math.cos(endRotRad) + ch * Math.sin(endRotRad) - cw) / 2 : 0;
   let step = maxStep;
   if (n > 1) {
@@ -143,8 +146,12 @@ function renderHand() {
   cards.forEach((card) => {
     let el = existing.get(card.id);
     if (!el) {
-      el = makeCard(card, { playable: myTurn && playable.has(card.id), dim: myTurn && !playable.has(card.id) });
-      if (!S.knownHand.has(card.id) && S.st && S.st.status === 'playing') el.classList.add('just-in');
+      el = makeCard(card, {
+        playable: myTurn && playable.has(card.id),
+        dim: myTurn && !playable.has(card.id),
+      });
+      if (!S.knownHand.has(card.id) && S.st && S.st.status === 'playing')
+        el.classList.add('just-in');
       S.knownHand.add(card.id);
       hand.appendChild(el);
       fresh.push(el);
@@ -177,9 +184,16 @@ function renderOpps() {
   const prev = S.prevState;
   // The top card only changes when someone plays — whoever's turn it was
   // before this state is the one who played it.
-  const topChanged = !!(prev && prev.status === 'playing' && st.top && prev.top && st.top.id !== prev.top.id);
+  const topChanged = !!(
+    prev &&
+    prev.status === 'playing' &&
+    st.top &&
+    prev.top &&
+    st.top.id !== prev.top.id
+  );
   const actorIdx = topChanged ? prev.turn : -1;
-  const ocw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ocw')) || 56;
+  const ocw =
+    parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ocw')) || 56;
 
   const existing = new Map([...wrap.children].map((el) => [el.dataset.idx, el]));
   existing.forEach((el, idx) => {
@@ -191,7 +205,8 @@ function renderOpps() {
     if (!el) {
       el = document.createElement('div');
       el.dataset.idx = p.index;
-      el.innerHTML = '<div class="opp-name"></div><div class="opp-hand"></div><div class="opp-count"></div>';
+      el.innerHTML =
+        '<div class="opp-name"></div><div class="opp-hand"></div><div class="opp-count"></div>';
       wrap.appendChild(el);
     }
     el.className = `opp ${positions[i]}${p.isCurrent ? ' current' : ''}${p.disconnected ? ' off' : ''}`;
@@ -226,7 +241,10 @@ function renderPiles() {
   $('#t-dir').textContent = st.direction === 1 ? '↻' : '↺';
 
   const pile = $('#discard-pile');
-  pile.style.setProperty('--curcolor', st.currentColor ? COLOR_HEX[st.currentColor] : 'transparent');
+  pile.style.setProperty(
+    '--curcolor',
+    st.currentColor ? COLOR_HEX[st.currentColor] : 'transparent',
+  );
 
   const holder = $('#discard-card');
   const top = st.top;
@@ -259,7 +277,9 @@ function renderOver() {
   over.hidden = false;
   const winner = st.players.find((p) => p.index === st.winner);
   const iWon = st.winner === st.yourIndex;
-  $('#over-title').textContent = iWon ? 'You win the table' : `${winner ? winner.name : 'Someone'} wins`;
+  $('#over-title').textContent = iWon
+    ? 'You win the table'
+    : `${winner ? winner.name : 'Someone'} wins`;
   $('#over-sub').textContent = iWon
     ? 'Every card played, every color called. Clean sweep.'
     : 'The deck took it this round. Run it back?';
@@ -291,7 +311,9 @@ function showToast(text) {
   t.textContent = text;
   t.hidden = false;
   clearTimeout(S.toastTimer);
-  S.toastTimer = setTimeout(() => { t.hidden = true; }, 3200);
+  S.toastTimer = setTimeout(() => {
+    t.hidden = true;
+  }, 3200);
 }
 
 function showUnoStamp(name) {
@@ -379,7 +401,12 @@ function playReshuffle(count) {
           opacity: 0,
         },
       ],
-      { duration: dur, delay: i * 40, easing: 'cubic-bezier(0.32, 0.72, 0.35, 1)', fill: 'forwards' }
+      {
+        duration: dur,
+        delay: i * 40,
+        easing: 'cubic-bezier(0.32, 0.72, 0.35, 1)',
+        fill: 'forwards',
+      },
     );
     setTimeout(() => el.remove(), dur + i * 40 + 80);
   }
@@ -429,11 +456,15 @@ function renderChat() {
   const me = st.players.find((p) => p.index === st.yourIndex);
   const box = $('#chat-msgs');
   const msgs = st.chat || [];
-  box.innerHTML = msgs.map((m) => `
+  box.innerHTML = msgs
+    .map(
+      (m) => `
     <div class="msg">
       <span class="mname ${me && m.name === me.name ? 'me' : ''}">${esc(m.name)}</span>
       <span class="mtext">${esc(m.text)}</span>
-    </div>`).join('');
+    </div>`,
+    )
+    .join('');
   box.scrollTop = box.scrollHeight;
 }
 
@@ -492,14 +523,18 @@ function renderLobby() {
   const st = S.st;
   $('#lobby-code').textContent = st.code;
   const list = $('#lobby-players');
-  list.innerHTML = st.players.map((p) => `
+  list.innerHTML = st.players
+    .map(
+      (p) => `
     <li>
       <span class="dot ${p.isBot ? 'bot' : ''} ${p.ready ? 'rdy' : ''}"></span>
-      <span class="pname">${esc(p.name)}${p.isBot ? '' : (p.index === st.yourIndex ? ' (you)' : '')}</span>
-      <span class="tag ${p.ready ? 'ready-on' : ''}">${p.isBot ? 'bot' : (p.ready ? 'ready' : 'not ready')}</span>
+      <span class="pname">${esc(p.name)}${p.isBot ? '' : p.index === st.yourIndex ? ' (you)' : ''}</span>
+      <span class="tag ${p.ready ? 'ready-on' : ''}">${p.isBot ? 'bot' : p.ready ? 'ready' : 'not ready'}</span>
       ${!p.isBot && p.index !== st.yourIndex && st.isHost ? `<button class="rm kick" data-kick="${p.index}" title="Kick from the table" aria-label="Kick ${esc(p.name)}">kick</button>` : ''}
       ${p.isBot ? `<button class="rm" data-index="${p.index}" title="Remove bot" aria-label="Remove ${esc(p.name)}">✕</button>` : ''}
-    </li>`).join('');
+    </li>`,
+    )
+    .join('');
   const me = st.players.find((p) => p.index === st.yourIndex);
   const canHost = st.isHost;
   $('#btn-start').disabled = !canHost || st.players.length < 2 || !st.allReady;
@@ -577,7 +612,7 @@ $('#lobby-players').addEventListener('click', (e) => {
 });
 $('#btn-copy').addEventListener('click', async () => {
   const code = $('#lobby-code').textContent;
-  let ok = false;
+  let ok;
   try {
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(code);
@@ -599,7 +634,10 @@ $('#btn-copy').addEventListener('click', async () => {
   }
   const btn = $('#btn-copy');
   btn.textContent = ok ? 'Copied' : 'Copy';
-  if (ok) setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
+  if (ok)
+    setTimeout(() => {
+      btn.textContent = 'Copy';
+    }, 1200);
 });
 
 /* ---------- table wiring ---------- */
@@ -723,7 +761,9 @@ socket.on('disconnect', () => {
   t.textContent = 'Connection lost — reconnecting…';
   t.hidden = false;
   clearTimeout(S.toastTimer);
-  S.toastTimer = setTimeout(() => { t.hidden = true; }, 5000);
+  S.toastTimer = setTimeout(() => {
+    t.hidden = true;
+  }, 5000);
 });
 
 socket.on('connect', () => {
@@ -736,7 +776,9 @@ socket.on('connect', () => {
     menuError(msg);
     leaveToMenu();
   };
-  if (r.screen === 'table' && r.status === 'playing') {
+  // 'over' too: the seat is still valid on the rematch screen, and after a
+  // server restart the human may be reconnecting straight into it.
+  if (r.screen === 'table' && (r.status === 'playing' || r.status === 'over')) {
     socket.emit('rejoin', { code: r.code, name: r.name }, (res) => {
       if (res && res.ok) {
         clearTimeout(S.toastTimer);
