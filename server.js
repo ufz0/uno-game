@@ -42,6 +42,7 @@ const MAX_PLAYERS = 4;
 const MAX_ROOMS = Number(process.env.MAX_ROOMS) || 100;
 const TURN_MS = Number(process.env.TURN_MS) || 30000;
 const REMATCH_MS = Number(process.env.REMATCH_MS) || 30000;
+const CHAT_MIN_MS = Number(process.env.CHAT_MIN_MS) || 400;
 const RESHUFFLE_MS = 1800;
 const BOT_DELAY_MS = [1000, 2200];
 const BOT_NAMES = ['Ruby', 'Milo', 'Vera', 'Otis', 'Nova', 'Juno'];
@@ -68,6 +69,18 @@ function cleanName(name) {
   return n || 'Player';
 }
 
+// Two seats with the same name make chat attribution ("you") and the lobby
+// list ambiguous, so a duplicate gets a numbered suffix.
+function uniqueName(room, name) {
+  const taken = new Set(room.game.players.map((p) => p.name.toLowerCase()));
+  if (!taken.has(name.toLowerCase())) return name;
+  for (let i = 2; ; i++) {
+    const suffix = ` ${i}`;
+    const candidate = name.slice(0, 16 - suffix.length) + suffix;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
+}
+
 function newRoom() {
   return {
     code: genCode(),
@@ -81,7 +94,12 @@ function newRoom() {
   };
 }
 
+// Fast path: the room is pinned on the socket when the player sits down
+// (create/join/rejoin) and unpinned on leave/kick. The scan below stays as
+// a fallback so a stale pointer can never strand a seated player.
 function roomOf(socket) {
+  const r = socket.data?.room;
+  if (r && rooms.has(r.code) && r.humans.has(socket.id)) return r;
   for (const room of rooms.values()) if (room.humans.has(socket.id)) return room;
   return null;
 }
@@ -246,6 +264,7 @@ function kickPlayer(room, sid, reason) {
   const sock = io.sockets.sockets.get(sid);
   if (sock) {
     sock.leave(room.code);
+    sock.data.room = null;
     sock.emit('kicked', { reason });
   }
   const g = room.game;
@@ -337,6 +356,7 @@ io.on('connection', (socket) => {
     room.humans.add(socket.id);
     socket.join(room.code);
     rooms.set(room.code, room);
+    socket.data.room = room;
 
     const count = Math.max(0, Math.min(3, parseInt(bots, 10) || 0));
     for (let i = 0; i < count; i++) addBot(room);
@@ -359,10 +379,36 @@ io.on('connection', (socket) => {
     if (!room) return cb?.({ ok: false, error: 'No table found with that code' });
     if (room.game.status !== 'lobby') return cb?.({ ok: false, error: 'That game already started' });
     if (room.game.players.length >= MAX_PLAYERS) return cb?.({ ok: false, error: 'That table is full' });
-    const n = cleanName(name);
+    const n = uniqueName(room, cleanName(name));
     room.game.addPlayer(n, false, socket.id);
     room.humans.add(socket.id);
     socket.join(room.code);
+    socket.data.room = room;
+    cb?.({ ok: true, code: room.code });
+    broadcast(room);
+  });
+
+  // A socket that dropped mid-round (network blip, laptop sleep) reconnects
+  // with a new id. This hands the old seat back: the player was kept in the
+  // game as `disconnected` when they dropped, so matching on the table code
+  // plus their name re-attaches the fresh socket to that seat.
+  socket.on('rejoin', ({ code, name } = {}, cb) => {
+    if (roomOf(socket)) {
+      return cb?.({ ok: false, error: 'You are already at a table — leave it first' });
+    }
+    const room = rooms.get(String(code || '').trim().toUpperCase());
+    if (!room) return cb?.({ ok: false, error: 'No table found with that code' });
+    if (room.game.status !== 'playing') return cb?.({ ok: false, error: 'That game is not in progress' });
+    const wanted = String(name || '').trim().toLowerCase();
+    const idx = room.game.players.findIndex((p) => p.disconnected && p.name.toLowerCase() === wanted);
+    if (idx < 0) return cb?.({ ok: false, error: 'No seat to rejoin — the table moved on' });
+    const p = room.game.players[idx];
+    p.id = socket.id;
+    p.disconnected = false;
+    room.humans.add(socket.id);
+    socket.join(room.code);
+    socket.data.room = room;
+    toast(room, `${p.name} is back`);
     cb?.({ ok: true, code: room.code });
     broadcast(room);
   });
@@ -473,6 +519,11 @@ io.on('connection', (socket) => {
   socket.on('chat', ({ text } = {}) => {
     const room = roomOf(socket);
     if (!room) return;
+    // One message per CHAT_MIN_MS per socket: a spammy client must not be
+    // able to re-render (and freeze) the other three tabs.
+    const now = Date.now();
+    if (now - (socket.data.lastChat || 0) < CHAT_MIN_MS) return;
+    socket.data.lastChat = now;
     const t = String(text || '').trim().slice(0, 200);
     if (!t) return;
     const p = room.game.players[playerIndexOf(room, socket.id)];
@@ -506,6 +557,7 @@ io.on('connection', (socket) => {
   function leave(disconnected = false) {
     const room = roomOf(socket);
     if (!room) return;
+    socket.data.room = null;
     room.humans.delete(socket.id);
     socket.leave(room.code);
     const g = room.game;

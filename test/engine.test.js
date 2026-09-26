@@ -138,6 +138,30 @@ test('empty deck reshuffles the discard pile, keeping the top card', () => {
   assert.equal(g.deck.length, 1);
 });
 
+test('a truly exhausted deck yields no card, never undefined', () => {
+  const g = setup(2);
+  g.deck = [];
+  g.discard = [{ id: 'solo', color: 'blue', value: '2', kind: 'number' }];
+  const before = g.players[0].hand.length;
+  const res = g.draw(0);
+  assert.equal(res.ok, true);
+  assert.equal(res.card, undefined, 'there is no 108th card to hand out');
+  assert.equal(g.players[0].hand.length, before, 'no phantom card joins the hand');
+  assert.equal(g.drewThisTurn, true, 'the turn still counts as spent, so the player can pass');
+  // The current player's playable list must not throw on the (unchanged) hand.
+  assert.ok(Array.isArray(g.playableCards(g.players[0].hand)));
+});
+
+test('callUno is refused while the game is not in progress', () => {
+  const g = new Game();
+  g.addPlayer('A');
+  g.addPlayer('B');
+  g.players[0].hand = [{ id: 'a', color: 'red', value: '3', kind: 'number' }];
+  const res = g.callUno(0);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /not in progress/);
+});
+
 test('callUno accepts exactly one card left, and nothing else', () => {
   const g = setup();
   g.players[0].hand = [{ id: 'a', color: 'red', value: '3', kind: 'number' }];
@@ -160,22 +184,23 @@ test('callUno accepts exactly one card left, and nothing else', () => {
   assert.match(missing.error, /no such player/i);
 });
 
-test('canStart enforces the 2-10 player window', () => {
+test('canStart enforces the 2-4 player window', () => {
   const g = new Game();
   g.addPlayer('P');
   assert.equal(g.canStart(), false, 'one player is not enough');
   g.addPlayer('Q');
   assert.equal(g.canStart(), true, 'two players is the minimum');
-  while (g.players.length < 10) g.addPlayer('P');
-  assert.equal(g.canStart(), true, 'ten players is allowed');
-  g.addPlayer('P');
-  assert.equal(g.canStart(), false, 'eleven players is too many');
+  g.addPlayer('R');
+  g.addPlayer('S');
+  assert.equal(g.canStart(), true, 'four players is the maximum');
+  g.addPlayer('T');
+  assert.equal(g.canStart(), false, 'five players is too many');
 });
 
-test('start() requires 2-10 players and never opens with a wild', () => {
+test('start() requires 2-4 players and never opens with a wild', () => {
   const solo = new Game();
   solo.addPlayer('Solo');
-  assert.throws(() => solo.start(), /2-10 players/);
+  assert.throws(() => solo.start(), /2-4 players/);
 
   for (let trial = 0; trial < 25; trial++) {
     const g = new Game();

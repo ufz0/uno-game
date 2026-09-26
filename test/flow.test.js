@@ -4,6 +4,7 @@ import io from 'socket.io-client';
 
 process.env.PORT = '0';
 process.env.REMATCH_MS = '4000';
+process.env.CHAT_MIN_MS = '1000';
 
 const mod = await import('../server.js');
 const { server, rooms } = mod;
@@ -353,6 +354,25 @@ test('chat is relayed to the table', { timeout: 30000 }, async () => {
   b.close();
 });
 
+test('chat is throttled per socket', { timeout: 30000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  await emitAck(a, 'create', { name: 'A1', bots: 0 });
+  await emitAck(b, 'join', { name: 'B1', code: (a._st?.code) || (await awaitState(a, () => true)).code });
+
+  let count = 0;
+  b.on('chat', () => { count++; });
+  a.emit('chat', { text: 'one' });
+  a.emit('chat', { text: 'two' }); // inside the CHAT_MIN_MS window: dropped
+  await new Promise((r) => setTimeout(r, 1100)); // wait past the window
+  a.emit('chat', { text: 'three' });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(count, 2, 'the in-window message is the only one dropped');
+
+  a.close();
+  b.close();
+});
+
 test('wrong code and full tables are rejected politely', { timeout: 30000 }, async () => {
   const a = await connect();
   const res = await emitAck(a, 'join', { name: 'X', code: 'ZZZZ' });
@@ -477,6 +497,38 @@ test('a disconnect mid-game marks the seat and the table keeps running', { timeo
   assert.equal(away.name, 'Alice');
 
   b.close();
+});
+
+test('a disconnected player can rejoin their seat with code + name', { timeout: 60000 }, async () => {
+  const a = await connect();
+  const b = await connect();
+  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+  assert.equal(created.ok, true);
+  await emitAck(b, 'join', { name: 'Bob', code: created.code });
+  await emitAck(a, 'ready', { on: true });
+  await emitAck(b, 'ready', { on: true });
+  await emitAck(a, 'start');
+  await awaitState(a, (x) => x.status === 'playing', 5000);
+
+  a.close(); // Alice drops mid-round; her seat stays, marked disconnected
+
+  const a2 = await connect(); // a fresh socket — what a browser reconnect looks like
+  const res = await emitAck(a2, 'rejoin', { code: created.code, name: 'Alice' });
+  assert.equal(res.ok, true, 'the seat comes back to the right name');
+
+  const st2 = await awaitState(a2, (x) => x.status === 'playing' && x.yourIndex >= 0, 5000);
+  assert.equal(st2.players[st2.yourIndex].name, 'Alice', 'the rejoiner sits in Alice\'s seat');
+  const stB = await awaitState(b, (x) => !x.players.some((p) => p.disconnected), 5000);
+  assert.equal(stB.status, 'playing');
+  assert.equal(stB.players.length, 2);
+
+  const stranger = await connect();
+  const wrong = await emitAck(stranger, 'rejoin', { code: created.code, name: 'Stranger' });
+  assert.equal(wrong.ok, false, 'no matching seat, no seat back');
+
+  a2.close();
+  b.close();
+  stranger.close();
 });
 
 test('when the host drops, leadership passes to the next human', { timeout: 30000 }, async () => {
@@ -624,7 +676,7 @@ test('voting out of a rematch leaves the table', { timeout: 90000 }, async () =>
 
 test('game actions are refused when not seated at a table', { timeout: 30000 }, async () => {
   const s = await connect();
-  for (const ev of ['play', 'draw', 'pass', 'start', 'rematch', 'add-bot', 'remove-bot', 'ready', 'kick', 'uno']) {
+  for (const ev of ['play', 'draw', 'pass', 'start', 'rematch', 'add-bot', 'remove-bot', 'ready', 'kick', 'uno', 'rejoin']) {
     const res = await emitAck(s, ev);
     assert.equal(res.ok, false, `${ev} is refused while unseated`);
   }
