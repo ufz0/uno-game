@@ -445,17 +445,6 @@ function emit(action, payload = {}) {
   });
 }
 
-function tryPlay(card) {
-  const st = S.st;
-  if (!st || !st.canAct) return;
-  if (card.kind === 'wild' || card.kind === 'wild4') {
-    S.pendingWild = card.id;
-    $('#color-picker').hidden = false;
-    return;
-  }
-  emit('play', { card: card.id });
-}
-
 function onState(st) {
   const prev = S.st;
   S.st = st;
@@ -586,9 +575,31 @@ $('#lobby-players').addEventListener('click', (e) => {
   if (rm.dataset.kick != null) emit('kick', { index: parseInt(rm.dataset.kick, 10) });
   else emit('remove-bot', { index: parseInt(rm.dataset.index, 10) });
 });
-$('#btn-copy').addEventListener('click', () => {
+$('#btn-copy').addEventListener('click', async () => {
   const code = $('#lobby-code').textContent;
-  if (navigator.clipboard) navigator.clipboard.writeText(code);
+  let ok = false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(code);
+      ok = true;
+    } else {
+      // Plain-HTTP LAN access: the async clipboard API is unavailable, so
+      // fall back to the (deprecated but universal) execCommand copy.
+      const ta = document.createElement('textarea');
+      ta.value = code;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      ok = document.execCommand('copy');
+      ta.remove();
+    }
+  } catch {
+    ok = false;
+  }
+  const btn = $('#btn-copy');
+  btn.textContent = ok ? 'Copied' : 'Copy';
+  if (ok) setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
 });
 
 /* ---------- table wiring ---------- */
@@ -699,8 +710,53 @@ socket.on('chat', (m) => {
   }
 });
 
+// A dropped line (Wi-Fi blip, laptop sleep) reconnects as a *new* socket.
+// Remember where we sat when the line drops, and on reconnect take the seat
+// back: mid-game via 'rejoin' (the server keeps the seat as `disconnected`),
+// lobby via a plain 'join'. If the seat is gone, land on the menu with why.
+socket.on('disconnect', () => {
+  if (S.st && S.st.code) {
+    const me = S.st.players.find((p) => p.index === S.st.yourIndex);
+    S.rejoin = { code: S.st.code, name: me ? me.name : '', screen: S.screen, status: S.st.status };
+  }
+  const t = $('#toast');
+  t.textContent = 'Connection lost — reconnecting…';
+  t.hidden = false;
+  clearTimeout(S.toastTimer);
+  S.toastTimer = setTimeout(() => { t.hidden = true; }, 5000);
+});
+
 socket.on('connect', () => {
-  // state is pushed server-side on (re)join; nothing to do
+  if (!S.rejoin) return;
+  const r = S.rejoin;
+  S.rejoin = null;
+  const fail = (msg) => {
+    clearTimeout(S.toastTimer);
+    $('#toast').hidden = true;
+    menuError(msg);
+    leaveToMenu();
+  };
+  if (r.screen === 'table' && r.status === 'playing') {
+    socket.emit('rejoin', { code: r.code, name: r.name }, (res) => {
+      if (res && res.ok) {
+        clearTimeout(S.toastTimer);
+        $('#toast').hidden = true;
+        return; // fresh state arrives via the broadcast
+      }
+      fail(res && res.error ? res.error : 'Connection lost — the table moved on.');
+    });
+  } else if (r.screen === 'lobby') {
+    socket.emit('join', { code: r.code, name: r.name }, (res) => {
+      if (res && res.ok) {
+        clearTimeout(S.toastTimer);
+        $('#toast').hidden = true;
+        return; // fresh state arrives via the broadcast
+      }
+      fail(res && res.error ? res.error : 'Connection lost — the table is gone.');
+    });
+  } else {
+    fail('Connection lost.');
+  }
 });
 
 show('menu');
