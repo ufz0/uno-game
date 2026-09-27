@@ -4,7 +4,7 @@ Real-time multiplayer UNO. Express + Socket.IO backend, vanilla JS client (no fr
 
 ## Git rule (user instruction — this project only)
 - **Commit only to `dev`. Never commit to `main`.** All feature work happens on `dev`; `main` is updated only via PRs. This rule was given for this repo and applies to no other project.
-- Repo: https://github.com/ufz0/uno-game (public). Push `dev` after changes; `dev` is the live branch. `main` tracks `dev` via PRs (#1–#3 merged); `dev` is normally only ahead by pending doc commits until the next merge.
+- Repo: https://github.com/ufz0/uno-game (public). Push `dev` after changes; `dev` is the live branch. `main` tracks `dev` via PRs (latest: #9, merged 2026-09-27 — persistence + lint gate); after each merge the two branches are content-identical (`main` just carries the merge commit), and `dev` picks up the next feature cycle.
 
 ## Run / test
 - `npm install`
