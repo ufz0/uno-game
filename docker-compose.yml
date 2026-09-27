@@ -3,5 +3,10 @@ services:
     build: .
     container_name: uno-game
     ports:
-      - "3000:3000"
+      - '3000:3000'
+    volumes:
+      - uno-data:/app/data
     restart: unless-stopped
+
+volumes:
+  uno-data:

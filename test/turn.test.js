@@ -1,3 +1,4 @@
+import './_env.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import io from 'socket.io-client';
@@ -27,7 +28,9 @@ after(() => {
 function connect() {
   return new Promise((resolve, reject) => {
     const s = io(url, { transports: ['websocket'], forceNew: true });
-    s.on('state', (st) => { s._st = st; });
+    s.on('state', (st) => {
+      s._st = st;
+    });
     s.on('connect', () => resolve(s));
     s.on('connect_error', reject);
   });
@@ -55,27 +58,34 @@ function awaitState(s, pred, ms = 6000) {
   });
 }
 
-test('a player who stalls is auto-passed when their turn runs out', { timeout: 30000 }, async () => {
-  const a = await connect();
-  const b = await connect();
-  const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
-  await emitAck(b, 'join', { name: 'Bob', code: created.code });
-  await emitAck(a, 'ready', { on: true });
-  await emitAck(b, 'ready', { on: true });
-  await emitAck(a, 'start');
+test(
+  'a player who stalls is auto-passed when their turn runs out',
+  { timeout: 30000 },
+  async () => {
+    const a = await connect();
+    const b = await connect();
+    const created = await emitAck(a, 'create', { name: 'Alice', bots: 0 });
+    await emitAck(b, 'join', { name: 'Bob', code: created.code });
+    await emitAck(a, 'ready', { on: true });
+    await emitAck(b, 'ready', { on: true });
+    await emitAck(a, 'start');
 
-  const toasts = [];
-  a.on('toast', (t) => toasts.push(t.text));
-  b.on('toast', (t) => toasts.push(t.text));
+    const toasts = [];
+    a.on('toast', (t) => toasts.push(t.text));
+    b.on('toast', (t) => toasts.push(t.text));
 
-  const stA = await awaitState(a, (x) => x.status === 'playing', 5000);
-  const other = stA.canAct ? b : a; // whichever socket does NOT hold the turn
+    const stA = await awaitState(a, (x) => x.status === 'playing', 5000);
+    const other = stA.canAct ? b : a; // whichever socket does NOT hold the turn
 
-  // Nobody acts: the actor's turn window expires and the turn is passed on.
-  const st = await awaitState(other, (x) => x.canAct, 5000);
-  assert.equal(st.canAct, true, 'the stalled turn was passed to the other player');
-  assert.ok(toasts.some((t) => /took too long/.test(t)), 'an auto-pass toast was relayed');
+    // Nobody acts: the actor's turn window expires and the turn is passed on.
+    const st = await awaitState(other, (x) => x.canAct, 5000);
+    assert.equal(st.canAct, true, 'the stalled turn was passed to the other player');
+    assert.ok(
+      toasts.some((t) => /took too long/.test(t)),
+      'an auto-pass toast was relayed',
+    );
 
-  a.close();
-  b.close();
-});
+    a.close();
+    b.close();
+  },
+);

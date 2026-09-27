@@ -29,7 +29,7 @@ test('bot plays a matching card when one is available', () => {
   });
   const before = g.players[0].hand.length;
   botMove(g, 0);
-  assert.equal(g.players[0].hand.length, before - 1, 'a card left the bot\'s hand');
+  assert.equal(g.players[0].hand.length, before - 1, "a card left the bot's hand");
   assert.equal(g.top.id, 'b1', 'the color-matching card was played');
   assert.equal(g.turn, 1, 'turn moved to the other seat');
 });
@@ -83,7 +83,7 @@ test('bot auto-calls UNO when a move leaves it with one card', () => {
   assert.equal(g.players[0].unoCalled, true, 'UNO was called');
 });
 
-test('botMove does not throw when it is not the bot\'s turn', () => {
+test("botMove does not throw when it is not the bot's turn", () => {
   const g = botGame({
     hand: [card('b1', 'blue', '1')],
     top: card('top', 'red', '7'),

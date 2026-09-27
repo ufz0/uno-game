@@ -1,173 +1,204 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>UNO — the card table</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23e5311b'/%3E%3Ctext x='50' y='68' font-size='52' font-weight='900' font-family='Arial' font-style='italic' text-anchor='middle' fill='%23fff'%3EU%3C/text%3E%3C/svg%3E">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,500;0,600;0,700;0,800;0,900;1,700;1,800;1,900&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css">
-</head>
-<body>
-  <div id="app">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UNO — the card table</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23e5311b'/%3E%3Ctext x='50' y='68' font-size='52' font-weight='900' font-family='Arial' font-style='italic' text-anchor='middle' fill='%23fff'%3EU%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,500;0,600;0,700;0,800;0,900;1,700;1,800;1,900&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <section id="screen-menu" class="screen">
+        <div class="menu">
+          <div class="menu-deal" aria-hidden="true">
+            <div class="mcard red" style="--i: 0"><span>7</span></div>
+            <div class="mcard yellow" style="--i: 1"><span>↻</span></div>
+            <div class="mcard green" style="--i: 2"><span>+2</span></div>
+            <div class="mcard blue" style="--i: 3"><span>⊘</span></div>
+            <div class="mcard wild" style="--i: 4"><span>★</span></div>
+          </div>
+          <h1 class="wordmark" aria-label="UNO"><span>U</span><span>N</span><span>O</span></h1>
+          <p class="tagline">Four colors, one winner. Shout it when you have one card left.</p>
 
-    <section id="screen-menu" class="screen">
-      <div class="menu">
-        <div class="menu-deal" aria-hidden="true">
-          <div class="mcard red" style="--i:0"><span>7</span></div>
-          <div class="mcard yellow" style="--i:1"><span>↻</span></div>
-          <div class="mcard green" style="--i:2"><span>+2</span></div>
-          <div class="mcard blue" style="--i:3"><span>⊘</span></div>
-          <div class="mcard wild" style="--i:4"><span>★</span></div>
-        </div>
-        <h1 class="wordmark" aria-label="UNO"><span>U</span><span>N</span><span>O</span></h1>
-        <p class="tagline">Four colors, one winner. Shout it when you have one card left.</p>
-
-        <div class="menu-panel">
-          <label class="field">
-            <span>Your name</span>
-            <input id="menu-name" maxlength="16" placeholder="e.g. Lukas" autocomplete="off">
-          </label>
-          <div class="menu-cols">
-            <div class="menu-col">
-              <h2>Set up a table</h2>
-              <p class="hint">Pick bots and the cards are dealt straight away. Party tables wait in the lobby for friends to join with your code.</p>
-              <div class="bots-row" id="bots-row" role="group" aria-label="Number of bots">
-                <button class="chip" data-bots="0">Party</button>
-                <button class="chip on" data-bots="1">+1 bot</button>
-                <button class="chip" data-bots="2">+2 bots</button>
-                <button class="chip" data-bots="3">+3 bots</button>
+          <div class="menu-panel">
+            <label class="field">
+              <span>Your name</span>
+              <input id="menu-name" maxlength="16" placeholder="e.g. Lukas" autocomplete="off" />
+            </label>
+            <div class="menu-cols">
+              <div class="menu-col">
+                <h2>Set up a table</h2>
+                <p class="hint">
+                  Pick bots and the cards are dealt straight away. Party tables wait in the lobby
+                  for friends to join with your code.
+                </p>
+                <div class="bots-row" id="bots-row" role="group" aria-label="Number of bots">
+                  <button class="chip" data-bots="0">Party</button>
+                  <button class="chip on" data-bots="1">+1 bot</button>
+                  <button class="chip" data-bots="2">+2 bots</button>
+                  <button class="chip" data-bots="3">+3 bots</button>
+                </div>
+                <button class="btn primary" id="btn-create">Create table</button>
               </div>
-              <button class="btn primary" id="btn-create">Create table</button>
+              <div class="menu-col">
+                <h2>Join a table</h2>
+                <p class="hint">Ask for the six-letter code and sit down.</p>
+                <label class="field">
+                  <span>Table code</span>
+                  <input
+                    id="join-code"
+                    maxlength="6"
+                    placeholder="CODE"
+                    autocomplete="off"
+                    style="text-transform: uppercase; letter-spacing: 0.18em; font-weight: 700"
+                  />
+                </label>
+                <button class="btn ghost" id="btn-join">Join table</button>
+              </div>
             </div>
-            <div class="menu-col">
-              <h2>Join a table</h2>
-              <p class="hint">Ask for the six-letter code and sit down.</p>
-              <label class="field">
-                <span>Table code</span>
-                <input id="join-code" maxlength="6" placeholder="CODE" autocomplete="off" style="text-transform:uppercase;letter-spacing:.18em;font-weight:700">
-              </label>
-              <button class="btn ghost" id="btn-join">Join table</button>
+            <p class="menu-error" id="menu-error" role="alert"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-lobby" class="screen hidden">
+        <div class="lobby">
+          <div class="lobby-head">
+            <span class="lobby-label">Table code</span>
+            <strong id="lobby-code">····</strong>
+            <button class="btn ghost small" id="btn-copy">Copy</button>
+          </div>
+          <ul class="lobby-players" id="lobby-players"></ul>
+          <p class="lobby-hint">
+            2–4 players. Everyone hits ready, then the party leader deals. Bots can sit in empty
+            seats until friends arrive.
+          </p>
+          <div class="lobby-actions">
+            <button class="btn ghost" id="btn-ready">I'm ready</button>
+            <button class="btn ghost small" id="btn-add-bot">Add a bot</button>
+            <button class="btn primary" id="btn-start">Deal the cards</button>
+            <button class="btn ghost" id="btn-leave">Leave table</button>
+          </div>
+          <p class="menu-error" id="lobby-error" role="alert"></p>
+        </div>
+      </section>
+
+      <section id="screen-table" class="screen hidden">
+        <header class="table-top">
+          <div class="room-chip">Table <strong id="t-code"></strong></div>
+          <button class="btn ghost small" id="btn-chat">Chat</button>
+        </header>
+
+        <main class="felt">
+          <div class="opps" id="opps"></div>
+          <div class="piles">
+            <div class="pile" id="deck-pile" title="Draw a card">
+              <div class="ring" id="timer-ring" hidden></div>
+              <div class="stack s1"></div>
+              <div class="stack s2"></div>
+              <div class="card back face-down">
+                <div class="oval"></div>
+                <div class="face">UNO</div>
+              </div>
+            </div>
+            <div class="dir" id="t-dir" title="Turn direction">↻</div>
+            <div class="pile discard" id="discard-pile" title="Top card">
+              <div class="stack s1"></div>
+              <div id="discard-card"></div>
             </div>
           </div>
-          <p class="menu-error" id="menu-error" role="alert"></p>
-        </div>
-      </div>
-    </section>
 
-    <section id="screen-lobby" class="screen hidden">
-      <div class="lobby">
-        <div class="lobby-head">
-          <span class="lobby-label">Table code</span>
-          <strong id="lobby-code">····</strong>
-          <button class="btn ghost small" id="btn-copy">Copy</button>
-        </div>
-        <ul class="lobby-players" id="lobby-players"></ul>
-      <p class="lobby-hint">2–4 players. Everyone hits ready, then the party leader deals. Bots can sit in empty seats until friends arrive.</p>
-      <div class="lobby-actions">
-        <button class="btn ghost" id="btn-ready">I'm ready</button>
-        <button class="btn ghost small" id="btn-add-bot">Add a bot</button>
-        <button class="btn primary" id="btn-start">Deal the cards</button>
-        <button class="btn ghost" id="btn-leave">Leave table</button>
-      </div>
-        <p class="menu-error" id="lobby-error" role="alert"></p>
-      </div>
-    </section>
-
-    <section id="screen-table" class="screen hidden">
-      <header class="table-top">
-        <div class="room-chip">Table <strong id="t-code"></strong></div>
-        <button class="btn ghost small" id="btn-chat">Chat</button>
-      </header>
-
-      <main class="felt">
-        <div class="opps" id="opps"></div>
-        <div class="piles">
-          <div class="pile" id="deck-pile" title="Draw a card">
-            <div class="ring" id="timer-ring" hidden></div>
-            <div class="stack s1"></div>
-            <div class="stack s2"></div>
-            <div class="card back face-down"><div class="oval"></div><div class="face">UNO</div></div>
+          <div class="hand-zone">
+            <div class="my-plate" id="my-plate">
+              <span class="my-name" id="my-name">You</span>
+              <span class="my-count" id="my-count">0</span>
+            </div>
+            <div class="hand" id="hand" aria-label="Your cards"></div>
           </div>
-          <div class="dir" id="t-dir" title="Turn direction">↻</div>
-          <div class="pile discard" id="discard-pile" title="Top card">
-            <div class="stack s1"></div>
-            <div id="discard-card"></div>
+
+          <div class="pass-slot">
+            <button class="btn ghost" id="btn-pass" hidden>Pass turn</button>
           </div>
-        </div>
 
-        <div class="hand-zone">
-          <div class="my-plate" id="my-plate">
-            <span class="my-name" id="my-name">You</span>
-            <span class="my-count" id="my-count">0</span>
+          <button id="btn-uno" title="Shout UNO when you have one card left" disabled>UNO!</button>
+
+          <div class="uno-stamp" id="uno-stamp" aria-live="polite">
+            <span class="u">U</span><span class="n">N</span><span class="o">O</span
+            ><em class="who" id="uno-who"></em>
           </div>
-          <div class="hand" id="hand" aria-label="Your cards"></div>
-        </div>
+          <div class="toast" id="toast" role="status" hidden></div>
+        </main>
 
-        <div class="pass-slot">
-          <button class="btn ghost" id="btn-pass" hidden>Pass turn</button>
-        </div>
+        <aside class="chat" id="chat-panel" aria-label="Chat">
+          <div class="chat-head">
+            <span class="chat-title">Table chat</span>
+            <button
+              class="chat-close"
+              id="btn-chat-close"
+              aria-label="Close chat"
+              title="Close chat"
+            >
+              &times;
+            </button>
+          </div>
+          <div class="chat-msgs" id="chat-msgs"></div>
+          <div class="chat-quick">
+            <button data-q="UNO!">UNO!</button>
+            <button data-q="gg">gg</button>
+            <button data-q="nice one">nice one</button>
+            <button data-q="my turn is taking forever">my turn is taking forever</button>
+          </div>
+          <div class="chat-input">
+            <input id="chat-text" maxlength="160" placeholder="Say something" autocomplete="off" />
+            <button class="btn primary small" id="btn-send">Send</button>
+          </div>
+        </aside>
 
-        <button id="btn-uno" title="Shout UNO when you have one card left" disabled>UNO!</button>
-
-        <div class="uno-stamp" id="uno-stamp" aria-live="polite"><span class="u">U</span><span class="n">N</span><span class="o">O</span><em class="who" id="uno-who"></em></div>
-        <div class="toast" id="toast" role="status" hidden></div>
-      </main>
-
-      <aside class="chat" id="chat-panel" aria-label="Chat">
-        <div class="chat-head">
-          <span class="chat-title">Table chat</span>
-          <button class="chat-close" id="btn-chat-close" aria-label="Close chat" title="Close chat">&times;</button>
-        </div>
-        <div class="chat-msgs" id="chat-msgs"></div>
-        <div class="chat-quick">
-          <button data-q="UNO!">UNO!</button>
-          <button data-q="gg">gg</button>
-          <button data-q="nice one">nice one</button>
-          <button data-q="my turn is taking forever">my turn is taking forever</button>
-        </div>
-        <div class="chat-input">
-          <input id="chat-text" maxlength="160" placeholder="Say something" autocomplete="off">
-          <button class="btn primary small" id="btn-send">Send</button>
-        </div>
-      </aside>
-
-      <div class="color-picker" id="color-picker" hidden>
-        <div class="cp-card">
-          <p>Pick a color</p>
-          <div class="cp-colors">
-            <button data-color="red" class="cp red" aria-label="Red"></button>
-            <button data-color="yellow" class="cp yellow" aria-label="Yellow"></button>
-            <button data-color="green" class="cp green" aria-label="Green"></button>
-            <button data-color="blue" class="cp blue" aria-label="Blue"></button>
+        <div class="color-picker" id="color-picker" hidden>
+          <div class="cp-card">
+            <p>Pick a color</p>
+            <div class="cp-colors">
+              <button data-color="red" class="cp red" aria-label="Red"></button>
+              <button data-color="yellow" class="cp yellow" aria-label="Yellow"></button>
+              <button data-color="green" class="cp green" aria-label="Green"></button>
+              <button data-color="blue" class="cp blue" aria-label="Blue"></button>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="over" id="over" hidden>
-        <div class="over-card">
-          <div class="over-word"><span class="u">U</span><span class="n">N</span><span class="o">O</span></div>
-          <h2 id="over-title">Table cleared</h2>
-          <p id="over-sub"></p>
-          <div id="rematch" hidden>
-            <ul class="rematch-list" id="rematch-list"></ul>
-            <p class="rematch-timer" id="rematch-timer" hidden></p>
-          </div>
-          <div class="over-actions">
-            <button class="btn primary" id="btn-again">Play again</button>
-            <button class="btn ghost" id="btn-leave2">Leave table</button>
+        <div class="over" id="over" hidden>
+          <div class="over-card">
+            <div class="over-word">
+              <span class="u">U</span><span class="n">N</span><span class="o">O</span>
+            </div>
+            <h2 id="over-title">Table cleared</h2>
+            <p id="over-sub"></p>
+            <div id="rematch" hidden>
+              <ul class="rematch-list" id="rematch-list"></ul>
+              <p class="rematch-timer" id="rematch-timer" hidden></p>
+            </div>
+            <div class="over-actions">
+              <button class="btn primary" id="btn-again">Play again</button>
+              <button class="btn ghost" id="btn-leave2">Leave table</button>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div id="shuffle-layer" hidden></div>
-    </section>
+        <div id="shuffle-layer" hidden></div>
+      </section>
+    </div>
 
-  </div>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="/app.js"></script>
-</body>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/app.js"></script>
+  </body>
 </html>

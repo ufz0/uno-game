@@ -3,8 +3,9 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
-import { Game, COLORS } from './lib/game.js';
+import { Game } from './lib/game.js';
 import { botMove } from './lib/bot.js';
+import { loadRooms, saveRooms } from './lib/persist.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -16,7 +17,7 @@ const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' https://fonts.googleapis.com",
-  "font-src https://fonts.gstatic.com",
+  'font-src https://fonts.gstatic.com',
   "img-src 'self' data:",
   "connect-src 'self'",
   "object-src 'none'",
@@ -45,6 +46,9 @@ const REMATCH_MS = Number(process.env.REMATCH_MS) || 30000;
 const CHAT_MIN_MS = Number(process.env.CHAT_MIN_MS) || 400;
 const RESHUFFLE_MS = 1800;
 const BOT_DELAY_MS = [1000, 2200];
+// Where tables are persisted across restarts. Override per deployment
+// (e.g. a bind-mounted dir in Docker); tests point it at a tmp file.
+const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data', 'rooms.json');
 const BOT_NAMES = ['Ruby', 'Milo', 'Vera', 'Otis', 'Nova', 'Juno'];
 
 const rooms = new Map();
@@ -163,6 +167,9 @@ function broadcast(room) {
     if (!sock) continue;
     io.to(sid).emit('state', stateFor(room, sock));
   }
+  // Every state change funnels through broadcast (or destroyRoom), so this
+  // one hook keeps the persisted copy current.
+  persistRooms();
 }
 
 function toast(room, text) {
@@ -188,6 +195,110 @@ function destroyRoom(room) {
   clearRematch(room);
   clearTimers(room);
   rooms.delete(room.code);
+  persistRooms();
+}
+
+/* ---------- persistence ----------
+ *
+ * Tables live in memory; this mirrors them to DATA_FILE so a restart
+ * (deploy, crash, laptop sleep) does not wipe mid-game tables. Writes are
+ * debounced and atomic (tmp file + rename); live timers are rebuilt from
+ * their deadlines on restore. Persistence is best-effort by design — a disk
+ * failure must never take the table down with it.
+ */
+let persistTimer = null;
+
+function persistRooms() {
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    flushPersist();
+  }, 300);
+  persistTimer.unref?.(); // a pending save must not hold the process open
+}
+
+function flushPersist() {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  try {
+    saveRooms(DATA_FILE, rooms);
+  } catch (err) {
+    console.error(`persist: write to ${DATA_FILE} failed: ${err.message}`);
+  }
+}
+
+// Rebuild the live timers a restored room needs. Deadlines that already
+// slipped past while the server was down fire immediately.
+function rehydrateRoom(room) {
+  const g = room.game;
+  // Every socket from the previous life is dead. In the lobby a seat is only
+  // useful while its human is there — drop the ghosts (keep the bots the
+  // user added) and let the next joiner take the dead host pointer. Mid-game
+  // (or on the rematch screen) the seat must survive, so it goes back to the
+  // `disconnected` state that rejoin hands back.
+  if (g.status === 'lobby') {
+    for (let i = g.players.length - 1; i >= 0; i--) {
+      if (!g.players[i].isBot) g.removePlayer(i);
+    }
+    room.humans.clear();
+    room.host = null;
+  } else {
+    for (const p of g.players) {
+      if (!p.isBot) p.disconnected = true;
+    }
+  }
+  const now = Date.now();
+  if (g.status === 'playing') {
+    const cur = g.players[g.turn];
+    if (cur?.isBot) {
+      // The bot's random delay was not persisted; hand it a fresh one.
+      const [min, max] = BOT_DELAY_MS;
+      room.botTimer = setTimeout(() => runBot(room), min + Math.random() * (max - min));
+    } else if (room.turnDeadline > now) {
+      room.turnTimer = setTimeout(() => autoPass(room), room.turnDeadline - now);
+    } else if (room.turnDeadline > 0) {
+      autoPass(room);
+    }
+  } else if (room.rematch) {
+    const rm = room.rematch;
+    if (rm.locked && rm.startAt) {
+      if (rm.startAt > now)
+        rm.startTimer = setTimeout(() => startNextRound(room), rm.startAt - now);
+      else startNextRound(room);
+    } else if (!rm.locked) {
+      for (const [sid, deadline] of [...rm.deadlines]) {
+        if (deadline <= now) {
+          rm.deadlines.delete(sid);
+          kickPlayer(room, sid, 'timeout');
+        } else {
+          rm.timers.set(
+            sid,
+            setTimeout(() => kickPlayer(room, sid, 'timeout'), deadline - now),
+          );
+        }
+      }
+      // The last vote may have landed moments before the crash: converge.
+      if (room.rematch && !room.rematch.locked) maybeStartNext(room);
+    }
+  }
+}
+
+// Replace the in-memory tables with whatever is on disk (the last flushed
+// state) and re-arm their timers. No-op on a first boot with no file.
+function reloadRooms() {
+  for (const room of rooms.values()) {
+    clearRematch(room);
+    clearTimers(room);
+  }
+  rooms.clear();
+  const loaded = loadRooms(DATA_FILE);
+  for (const [code, room] of loaded) {
+    rooms.set(code, room);
+    rehydrateRoom(room);
+  }
+  return loaded.size;
 }
 
 function autoPass(room) {
@@ -214,10 +325,20 @@ function runBot(room) {
 }
 
 function beginRematch(room) {
-  const rm = { votes: new Set(), deadlines: new Map(), timers: new Map(), startTimer: null, locked: false };
+  const rm = {
+    votes: new Set(),
+    deadlines: new Map(),
+    timers: new Map(),
+    startTimer: null,
+    startAt: null,
+    locked: false,
+  };
   for (const sid of room.humans) {
     rm.deadlines.set(sid, Date.now() + REMATCH_MS);
-    rm.timers.set(sid, setTimeout(() => kickPlayer(room, sid, 'timeout'), REMATCH_MS));
+    rm.timers.set(
+      sid,
+      setTimeout(() => kickPlayer(room, sid, 'timeout'), REMATCH_MS),
+    );
   }
   room.rematch = rm;
 }
@@ -238,6 +359,7 @@ function maybeStartNext(room) {
   broadcast(room);
   const count = room.game.discard.length;
   for (const sid of room.humans) io.to(sid).emit('reshuffle', { count });
+  rm.startAt = Date.now() + RESHUFFLE_MS;
   rm.startTimer = setTimeout(() => startNextRound(room), RESHUFFLE_MS);
 }
 
@@ -375,13 +497,22 @@ io.on('connection', (socket) => {
     if (roomOf(socket)) {
       return cb?.({ ok: false, error: 'You are already at a table — leave it first' });
     }
-    const room = rooms.get(String(code || '').trim().toUpperCase());
+    const room = rooms.get(
+      String(code || '')
+        .trim()
+        .toUpperCase(),
+    );
     if (!room) return cb?.({ ok: false, error: 'No table found with that code' });
-    if (room.game.status !== 'lobby') return cb?.({ ok: false, error: 'That game already started' });
-    if (room.game.players.length >= MAX_PLAYERS) return cb?.({ ok: false, error: 'That table is full' });
+    if (room.game.status !== 'lobby')
+      return cb?.({ ok: false, error: 'That game already started' });
+    if (room.game.players.length >= MAX_PLAYERS)
+      return cb?.({ ok: false, error: 'That table is full' });
     const n = uniqueName(room, cleanName(name));
     room.game.addPlayer(n, false, socket.id);
     room.humans.add(socket.id);
+    // A restored lobby's host is a socket from the previous life — dead by
+    // definition. The first human to sit down takes over the controls.
+    if (!room.host || !io.sockets.sockets.has(room.host)) room.host = socket.id;
     socket.join(room.code);
     socket.data.room = room;
     cb?.({ ok: true, code: room.code });
@@ -396,16 +527,53 @@ io.on('connection', (socket) => {
     if (roomOf(socket)) {
       return cb?.({ ok: false, error: 'You are already at a table — leave it first' });
     }
-    const room = rooms.get(String(code || '').trim().toUpperCase());
+    const room = rooms.get(
+      String(code || '')
+        .trim()
+        .toUpperCase(),
+    );
     if (!room) return cb?.({ ok: false, error: 'No table found with that code' });
-    if (room.game.status !== 'playing') return cb?.({ ok: false, error: 'That game is not in progress' });
-    const wanted = String(name || '').trim().toLowerCase();
-    const idx = room.game.players.findIndex((p) => p.disconnected && p.name.toLowerCase() === wanted);
+    // 'over' covers the rematch screen: the seat is still valid there, and
+    // after a restart the human may be coming back to it mid-decision.
+    if (room.game.status !== 'playing' && room.game.status !== 'over')
+      return cb?.({ ok: false, error: 'That game is not in progress' });
+    const wanted = String(name || '')
+      .trim()
+      .toLowerCase();
+    const idx = room.game.players.findIndex(
+      (p) => p.disconnected && p.name.toLowerCase() === wanted,
+    );
     if (idx < 0) return cb?.({ ok: false, error: 'No seat to rejoin — the table moved on' });
     const p = room.game.players[idx];
+    // Swap the seat onto the fresh socket. The old id must not linger in
+    // `humans` (it would keep the room alive forever) and the host pointer
+    // has to follow the seat or the host loses their controls.
+    const oldId = p.id;
     p.id = socket.id;
     p.disconnected = false;
+    room.humans.delete(oldId);
     room.humans.add(socket.id);
+    if (room.host === oldId) room.host = socket.id;
+    // On the rematch screen the seat carries a vote / deadline / timer keyed
+    // by the old id — move them onto the fresh socket or the UI and the
+    // timeout would act on a ghost.
+    const rm = room.rematch;
+    if (rm) {
+      if (rm.votes.has(oldId)) {
+        rm.votes.delete(oldId);
+        rm.votes.add(socket.id);
+      }
+      const dl = rm.deadlines.get(oldId);
+      if (dl !== undefined) {
+        rm.deadlines.delete(oldId);
+        rm.deadlines.set(socket.id, dl);
+      }
+      const t = rm.timers.get(oldId);
+      if (t) {
+        rm.timers.delete(oldId);
+        rm.timers.set(socket.id, t);
+      }
+    }
     socket.join(room.code);
     socket.data.room = room;
     toast(room, `${p.name} is back`);
@@ -428,7 +596,8 @@ io.on('connection', (socket) => {
   socket.on('kick', ({ index } = {}, cb) => {
     const room = roomOf(socket);
     if (!room) return cb?.({ ok: false, error: 'Not at a table' });
-    if (room.host !== socket.id) return cb?.({ ok: false, error: 'Only the party leader can kick' });
+    if (room.host !== socket.id)
+      return cb?.({ ok: false, error: 'Only the party leader can kick' });
     if (room.game.status !== 'lobby') return cb?.({ ok: false, error: 'Only in the lobby' });
     const p = room.game.players[index];
     if (!p || p.isBot || p.id === socket.id) return cb?.({ ok: false, error: 'Not a player' });
@@ -444,7 +613,10 @@ io.on('connection', (socket) => {
     if (room.game.status !== 'lobby') return cb?.({ ok: false, error: 'Game already running' });
     const waiting = room.game.players.filter((p) => !p.isBot && !p.ready);
     if (waiting.length > 0) {
-      return cb?.({ ok: false, error: `Waiting for ${waiting.map((p) => p.name).join(', ')} to be ready` });
+      return cb?.({
+        ok: false,
+        error: `Waiting for ${waiting.map((p) => p.name).join(', ')} to be ready`,
+      });
     }
     startGame(room, cb);
   });
@@ -452,7 +624,8 @@ io.on('connection', (socket) => {
   socket.on('add-bot', (_payload, cb) => {
     const room = roomOf(socket);
     if (!room) return cb?.({ ok: false });
-    if (room.game.status !== 'lobby') return cb?.({ ok: false, error: 'Only before the game starts' });
+    if (room.game.status !== 'lobby')
+      return cb?.({ ok: false, error: 'Only before the game starts' });
     const name = addBot(room);
     if (!name) return cb?.({ ok: false, error: 'Table is full' });
     toast(room, `${name} joined the table`);
@@ -463,7 +636,8 @@ io.on('connection', (socket) => {
   socket.on('remove-bot', ({ index } = {}, cb) => {
     const room = roomOf(socket);
     if (!room) return cb?.({ ok: false });
-    if (room.game.status !== 'lobby') return cb?.({ ok: false, error: 'Only before the game starts' });
+    if (room.game.status !== 'lobby')
+      return cb?.({ ok: false, error: 'Only before the game starts' });
     const p = room.game.players[index];
     if (!p || !p.isBot) return cb?.({ ok: false, error: 'Not a bot' });
     room.game.removePlayer(index);
@@ -524,13 +698,16 @@ io.on('connection', (socket) => {
     const now = Date.now();
     if (now - (socket.data.lastChat || 0) < CHAT_MIN_MS) return;
     socket.data.lastChat = now;
-    const t = String(text || '').trim().slice(0, 200);
+    const t = String(text || '')
+      .trim()
+      .slice(0, 200);
     if (!t) return;
     const p = room.game.players[playerIndexOf(room, socket.id)];
     const msg = { name: p ? p.name : 'Someone', text: t, ts: Date.now() };
     room.chat.push(msg);
     if (room.chat.length > 60) room.chat.shift();
     for (const sid of room.humans) io.to(sid).emit('chat', msg);
+    persistRooms(); // chat is the one state change that bypasses broadcast
   });
 
   socket.on('rematch', ({ again } = {}, cb) => {
@@ -597,8 +774,22 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => leave(true));
 });
 
+// Restore tables from the previous run (no-op on a first boot).
+const restored = reloadRooms();
+if (restored > 0) console.log(`persist: restored ${restored} table(s) from ${DATA_FILE}`);
+
+// Flush on the way out so a Ctrl-C or container stop never loses the last
+// few seconds of play.
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    flushPersist();
+    process.exit(sig === 'SIGINT' ? 130 : 0);
+  });
+}
+process.on('exit', () => flushPersist());
+
 server.listen(PORT, () => {
   console.log(`UNO table open at http://localhost:${PORT}`);
 });
 
-export { app, server, io, rooms };
+export { app, server, io, rooms, flushPersist, reloadRooms };

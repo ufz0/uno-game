@@ -244,7 +244,7 @@ test('removePlayer splices the seat and playerIndexById resolves by id', () => {
   const g = new Game();
   const i0 = g.addPlayer('A');
   const i1 = g.addPlayer('B');
-  const i2 = g.addPlayer('C');
+  g.addPlayer('C');
   assert.equal(i0, 0);
   assert.equal(g.playerIndexById(g.players[i1].id), i1);
   g.removePlayer(i1);

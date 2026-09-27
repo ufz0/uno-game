@@ -27,6 +27,21 @@ jobs:
             node --check "$f"
           done
 
+  # The style gate: ESLint (errors, incl. unused vars and undefined globals)
+  # plus a Prettier check so the formatting stays stable between machines.
+  lint:
+    name: lint (eslint + prettier)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+
   # The full node:test suite (engine, bot, cards, http, turn, cap, and the
   # socket.io end-to-end flows). Node 22 matches the Docker image; 20 and 24
   # cover the surrounding LTS lines. (Node 18 is past EOL and predates the
